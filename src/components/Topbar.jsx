@@ -1,7 +1,9 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useUi, useWs, setUi, toggleTheme } from '../store.js';
 import { IconEnv, IconGear, IconImport, IconLogo, IconMoon, IconSun, IconCookie, IconPlus } from './icons.jsx';
-import { newRequestTab } from '../actions.js';
+import { newRequestTab, openMenu } from '../actions.js';
+import { PROTOCOLS } from '../lib/model.js';
+import { Select } from './Menu.jsx';
 
 const SAVE_LABEL = { pending: 'Unsaved changes', saving: 'Saving…', saved: 'All changes saved', error: 'Save failed' };
 
@@ -20,18 +22,30 @@ export default function Topbar() {
       <span className={`save-status ${saveStatus}`} title={saveError || ''}>
         {SAVE_LABEL[saveStatus]}
       </span>
-      <label className="env-pick" title="Active environment">
-        <IconEnv />
-        <select value={activeId} onChange={(e) => setUi({ envId: e.target.value || null })}>
-          <option value="">No environment</option>
-          {envs.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button className="topbar-btn" title="New request (Alt+N)" onClick={() => newRequestTab()}>
+      <div className="env-pick">
+        <Select
+          className="env-select"
+          title="Active environment"
+          ariaLabel="Active environment"
+          value={activeId}
+          minWidth={220}
+          onChange={(v) => setUi({ envId: v || null })}
+          display={
+            <>
+              <IconEnv /> {envs.find((e) => e.id === activeId)?.name || 'No environment'}
+            </>
+          }
+          options={[{ value: '', label: 'No environment' }, ...envs.map((e) => ({ value: e.id, label: e.name }))]}
+        />
+      </div>
+      <button
+        className="topbar-btn"
+        title="New request (Alt+N for HTTP)"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          openMenu({ preventDefault() {}, stopPropagation() {}, clientX: r.left, clientY: r.bottom + 8 }, PROTOCOLS.map(([k, label]) => ({ label: `${label} request`, onClick: () => newRequestTab({ protocol: k }) })));
+        }}
+      >
         <IconPlus /> New
       </button>
       <button className="topbar-btn" onClick={() => setUi({ modal: { type: 'import' } })}>

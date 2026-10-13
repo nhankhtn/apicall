@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { useWs } from '../store.js';
-import { findNode, METHODS } from '../lib/model.js';
+import { findNode } from '../lib/model.js';
 import { prettyBody, eqi } from '../lib/util.js';
 import * as A from '../actions.js';
 import CodeEditor from './CodeEditor.jsx';
 import KeyValueEditor from './KeyValueEditor.jsx';
 import { IconExample } from './icons.jsx';
+import { MethodSelect } from './Menu.jsx';
 
 // A saved example: the request that was sent and the response it produced. Editable, saved immediately.
 export default function ExampleView({ refId }) {
@@ -38,15 +39,7 @@ export default function ExampleView({ refId }) {
         <section>
           <div className="pane-label">Request</div>
           <div className="url-bar static">
-            <select
-              className={`method-select m-${ex.request?.method}`}
-              value={ex.request?.method || 'GET'}
-              onChange={(e) => upd((x) => ({ ...x, request: { ...x.request, method: e.target.value } }))}
-            >
-              {METHODS.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
+            <MethodSelect value={ex.request?.method || 'GET'} onChange={(method) => upd((x) => ({ ...x, request: { ...x.request, method } }))} />
             <input className="url-input mono" value={ex.request?.url || ''} onChange={(e) => upd((x) => ({ ...x, request: { ...x.request, url: e.target.value } }))} />
           </div>
           <div className="pane-label">Headers</div>

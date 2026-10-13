@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useUi, useWs, setUi } from '../store.js';
-import { findNode } from '../lib/model.js';
+import { findNode, isHttp, PROTOCOL_TAG } from '../lib/model.js';
 import * as A from '../actions.js';
 import { IconCollection, IconEnv, IconExample, IconFolder, IconGlobe, IconPlay, IconPlus, IconX } from './icons.jsx';
 
@@ -9,7 +9,8 @@ const SHORT = { DELETE: 'DEL', OPTIONS: 'OPT' };
 function tabInfo(tab, ws, drafts) {
   if (tab.kind === 'request') {
     const r = drafts[tab.refId] || findNode(ws, tab.refId)?.node;
-    return r ? { title: r.name, method: r.method } : { title: 'Deleted request', missing: true };
+    if (!r) return { title: 'Deleted request', missing: true };
+    return isHttp(r) ? { title: r.name, method: r.method } : { title: r.name, tag: PROTOCOL_TAG[r.protocol], protocol: r.protocol };
   }
   if (tab.kind === 'example') {
     const [reqId, exId] = tab.refId.split('/');
@@ -77,7 +78,13 @@ export default function TabBar() {
                 dragId.current = null;
               }}
             >
-              {info.method ? <span className={`method-tag m-${info.method}`}>{SHORT[info.method] || info.method}</span> : Icon ? <Icon className="tab-ico" /> : null}
+              {info.method ? (
+                <span className={`method-tag m-${info.method}`}>{SHORT[info.method] || info.method}</span>
+              ) : info.tag ? (
+                <span className={`method-tag p-${info.protocol}`}>{info.tag}</span>
+              ) : Icon ? (
+                <Icon className="tab-ico" />
+              ) : null}
               <span className="tab-title">{info.title}</span>
               {dirty && <span className="dirty-dot" />}
               <button

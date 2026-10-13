@@ -15,7 +15,101 @@ export const emptyBody = () => ({
   binary: null,
 });
 
-export function newRequest(name = 'New Request') {
+// Request kinds. Collections export to Postman v2.1 with HTTP requests only (the format has
+// no place for the others); workspace backups keep everything.
+export const PROTOCOLS = [
+  ['http', 'HTTP'],
+  ['websocket', 'WebSocket'],
+  ['socketio', 'Socket.IO'],
+  ['mqtt', 'MQTT'],
+  ['grpc', 'gRPC'],
+];
+export const PROTOCOL_TAG = { websocket: 'WS', socketio: 'SIO', mqtt: 'MQTT', grpc: 'gRPC' };
+export const isHttp = (r) => !r.protocol || r.protocol === 'http';
+
+function protocolDefaults(protocol) {
+  switch (protocol) {
+    case 'websocket':
+      return { url: '', ws: { subprotocols: '', format: 'text', message: '', saved: [] } };
+    case 'socketio':
+      return {
+        url: '',
+        socketio: { path: '/socket.io', version: 'v4', auth: '', events: [{ key: 'message', value: '', enabled: true }], event: 'message', args: '[\n  "hello"\n]', ack: false, saved: [] },
+      };
+    case 'mqtt':
+      return {
+        url: '',
+        mqtt: {
+          clientId: `apicall-${Math.random().toString(36).slice(2, 10)}`,
+          username: '',
+          password: '',
+          clean: true,
+          keepalive: 60,
+          protocolVersion: 4,
+          subscriptions: [{ key: '#', value: '0', enabled: true }],
+          topic: '',
+          payload: '',
+          qos: 0,
+          retain: false,
+          saved: [],
+        },
+      };
+    case 'grpc':
+      return { url: '', grpc: { tls: false, verifySsl: true, reflection: true, protoFiles: {}, service: '', method: '', message: '{}', metadata: [], deadlineMs: 0, services: null } };
+    default:
+      return {};
+  }
+}
+
+// Switches a request (an immer draft or a plain object) to another protocol in place. Settings of
+// the other protocols are kept, so switching back restores them; the URL scheme is adapted.
+export function convertRequest(r, protocol) {
+  const from = r.protocol || 'http';
+  if (from === protocol) return;
+  r.protocol = protocol;
+  const d = protocolDefaults(protocol);
+  for (const k of Object.keys(d)) if (k !== 'url' && !r[k]) r[k] = d[k];
+  // Remember each protocol's URL so switching back restores it exactly.
+  r.urlByProtocol = { ...(r.urlByProtocol || {}), [from]: r.url };
+  if (r.urlByProtocol[protocol] !== undefined) {
+    r.url = r.urlByProtocol[protocol];
+    return;
+  }
+  const url = String(r.url || '').trim();
+  if (!url || url.startsWith('{{')) return;
+  const m = url.match(/^([a-z][a-z0-9+.-]*):\/\/(.*)$/i);
+  const scheme = m ? m[1].toLowerCase() : '';
+  const rest = m ? m[2] : url;
+  const secure = ['https', 'wss', 'mqtts', 'grpcs'].includes(scheme);
+  const hostPort = rest.split(/[/?#]/)[0];
+  switch (protocol) {
+    case 'websocket':
+      r.url = `${secure ? 'wss' : 'ws'}://${rest}`;
+      break;
+    case 'http':
+    case 'socketio':
+      r.url = from === 'grpc' ? `http://${rest}` : `${secure ? 'https' : 'http'}://${rest}`;
+      break;
+    case 'mqtt':
+      r.url = `${secure ? 'mqtts' : 'mqtt'}://${hostPort}`;
+      break;
+    case 'grpc':
+      r.url = hostPort;
+      if (r.grpc && secure) r.grpc.tls = true;
+      break;
+    default:
+  }
+}
+
+export function newRequest(name = 'New Request', protocol = 'http') {
+  return {
+    ...newHttpRequest(name),
+    protocol,
+    ...protocolDefaults(protocol),
+  };
+}
+
+function newHttpRequest(name) {
   return {
     id: uid(),
     type: 'request',
@@ -57,6 +151,11 @@ export const newEnvironment = (name = 'New Environment') => ({ id: uid(), name, 
 
 // Fills fields added in later versions so older workspaces keep working.
 export function normalizeRequest(r) {
+  r.protocol ||= 'http';
+  if (r.protocol !== 'http') {
+    const d = protocolDefaults(r.protocol);
+    for (const k of Object.keys(d)) if (k !== 'url') r[k] = { ...d[k], ...(r[k] || {}) };
+  }
   r.pathVars ||= [];
   r.disabledQuery ||= [];
   r.settings ||= {};
@@ -185,6 +284,24 @@ function convAuth(a, dflt) {
         type: 'awsv4',
         awsv4: { accessKey: str(p.accessKey), secretKey: str(p.secretKey), sessionToken: str(p.sessionToken), region: str(p.region), service: str(p.service) },
       };
+    case 'hawk':
+      return {
+        type: 'hawk',
+        hawk: {
+          authId: str(p.authId),
+          authKey: str(p.authKey),
+          algorithm: str(p.algorithm) || 'sha256',
+          user: str(p.user),
+          nonce: str(p.nonce),
+          ext: str(p.extraData),
+          app: str(p.app),
+          delegation: str(p.delegation),
+          timestamp: str(p.timestamp),
+          includePayloadHash: p.includePayloadHash === true || p.includePayloadHash === 'true',
+        },
+      };
+    case 'ntlm':
+      return { type: 'ntlm', ntlm: { username: str(p.username), password: str(p.password), domain: str(p.domain), workstation: str(p.workstation) } };
     case 'jwt':
       return {
         type: 'jwt',
@@ -357,7 +474,12 @@ function expAuth(a) {
     case 'apikey':
     case 'digest':
     case 'awsv4':
+    case 'ntlm':
       return { type: a.type, [a.type]: p(a[a.type]) };
+    case 'hawk': {
+      const { ext, ...rest } = a.hawk || {};
+      return { type: 'hawk', hawk: p({ ...rest, extraData: ext }) };
+    }
     case 'jwt': {
       const j = a.jwt || {};
       return {
@@ -436,9 +558,11 @@ function expUrl(n) {
   };
 }
 
+const exportable = (n) => n.type !== 'request' || isHttp(n);
+
 function expItem(n) {
   if (n.type === 'folder') {
-    return { name: n.name, description: n.description || undefined, item: n.items.map(expItem), auth: expAuth(n.auth), event: expEvents(n) };
+    return { name: n.name, description: n.description || undefined, item: n.items.filter(exportable).map(expItem), auth: expAuth(n.auth), event: expEvents(n) };
   }
   const ppb = {};
   if (n.settings?.verifySsl === false) ppb.strictSSL = false;
@@ -475,7 +599,7 @@ export function exportPostmanCollection(col) {
       description: col.description || undefined,
       schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
     },
-    item: col.items.map(expItem),
+    item: col.items.filter(exportable).map(expItem),
     auth: expAuth(col.auth),
     event: expEvents(col),
     variable: col.variables.map((v) => ({ key: v.key, value: v.value, ...(v.enabled === false ? { disabled: true } : {}) })),

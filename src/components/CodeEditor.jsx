@@ -84,6 +84,8 @@ function varExtensions(varsRef) {
 
 // `vars` (from useVars) turns on {{variable}} support. `onSearchRef` receives a function that
 // opens the search panel, for an external "search" button.
+// Read-only editors stay focusable (no editable={false}) so Ctrl+F opens CodeMirror's search;
+// the browser's own find cannot see lines CodeMirror has not rendered.
 export default function CodeEditor({ value, onChange, language = 'text', readOnly = false, placeholder, height = '100%', onCreateEditor, wrap = false, vars, onSearchRef }) {
   const isDark = useUi((st) => st.theme === 'dark');
   const varsRef = useRef(vars);
@@ -106,7 +108,6 @@ export default function CodeEditor({ value, onChange, language = 'text', readOnl
       theme={isDark ? 'dark' : 'light'}
       extensions={extensions}
       readOnly={readOnly}
-      editable={!readOnly}
       placeholder={placeholder}
       onChange={onChange}
       onCreateEditor={(view) => {

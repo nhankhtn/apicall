@@ -1,11 +1,12 @@
 // Collection runs and load tests. Run state is kept outside React state (results can be large);
 // components re-render by watching `runsRev` in the UI store.
 import { useUi, setUi, getWs } from './store.js';
-import { findNode, flattenRequests } from './lib/model.js';
+import { findNode, flattenRequests, isHttp } from './lib/model.js';
 import { isFailed } from './lib/engine.js';
 import { scopesFor, applyJobState, toast, jobContext } from './actions.js';
 import { runInWorker } from './engineClient.js';
 import { download, errMsg, uid } from './lib/util.js';
+import * as db from './db.js';
 
 const MAX_KEPT_BODY = 256 * 1024;
 const MAX_SAVED_RESULTS = 2000;
@@ -62,12 +63,14 @@ export function getRun(targetId) {
 export function updateRunConfig(targetId, patch) {
   const run = getRun(targetId);
   run.config = { ...run.config, ...patch };
-  bump();
+  // Re-render right away: these are form edits, and controlled inputs must not lag a frame.
+  setUi((s) => ({ runsRev: s.runsRev + 1 }));
 }
 
 // Requests of the target in run order: the custom order first, then anything new in tree order.
 export function orderedEntries(target, chain, order) {
-  const entries = flattenRequests(target, chain);
+  // Only HTTP requests take part in runs, as in Postman's collection runner.
+  const entries = flattenRequests(target, chain).filter((e) => isHttp(e.item));
   if (!order?.length) return entries;
   const pos = new Map(order.map((id, i) => [id, i]));
   return [...entries].sort((a, b) => (pos.get(a.item.id) ?? 1e9) - (pos.get(b.item.id) ?? 1e9));
@@ -166,7 +169,7 @@ function prepare(targetId) {
 }
 
 function saveRunHistory(entry) {
-  fetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(entry) })
+  db.runsPut(entry)
     .then(() => {
       const run = getRun(entry.targetId);
       if (run.history) {
@@ -314,8 +317,7 @@ export const stopRun = (targetId) => getRun(targetId).stop?.();
 export async function loadRunHistory(targetId) {
   const run = getRun(targetId);
   try {
-    const r = await fetch(`/api/runs?target=${encodeURIComponent(targetId)}`);
-    run.history = (await r.json()).map(summaryOf);
+    run.history = (await db.runsList(targetId)).map(summaryOf);
   } catch (e) {
     run.history = [];
     toast(`Cannot load run history: ${errMsg(e)}`, 'error');
@@ -330,9 +332,8 @@ export async function viewPastRun(targetId, runId) {
     return bump();
   }
   try {
-    const r = await fetch(`/api/runs/${runId}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    run.viewing = await r.json();
+    run.viewing = await db.runsGet(runId);
+    if (!run.viewing) throw new Error('it was deleted');
   } catch (e) {
     toast(`Cannot open run: ${errMsg(e)}`, 'error');
   }
@@ -341,7 +342,7 @@ export async function viewPastRun(targetId, runId) {
 
 export async function deletePastRun(targetId, runId) {
   const run = getRun(targetId);
-  await fetch(`/api/runs/${runId}`, { method: 'DELETE' }).catch(() => {});
+  await db.runsDelete(runId).catch(() => {});
   run.history = (run.history || []).filter((h) => h.id !== runId);
   if (run.viewing?.id === runId) run.viewing = null;
   bump();

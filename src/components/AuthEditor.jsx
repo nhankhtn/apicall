@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { VarInput } from './vars.jsx';
+import { Select } from './Menu.jsx';
 import { getOAuth2Token, oauthRedirectUri, toast } from '../actions.js';
 import { errMsg } from '../lib/util.js';
 
@@ -13,6 +14,8 @@ const TYPES = [
   ['digest', 'Digest Auth'],
   ['oauth2', 'OAuth 2.0'],
   ['awsv4', 'AWS Signature'],
+  ['hawk', 'Hawk Authentication'],
+  ['ntlm', 'NTLM Authentication'],
 ];
 
 const DEFAULTS = {
@@ -21,6 +24,8 @@ const DEFAULTS = {
   apikey: { key: '', value: '', in: 'header' },
   digest: { username: '', password: '' },
   awsv4: { accessKey: '', secretKey: '', region: '', service: '', sessionToken: '' },
+  hawk: { authId: '', authKey: '', algorithm: 'sha256', user: '', nonce: '', ext: '', app: '', delegation: '', timestamp: '', includePayloadHash: false },
+  ntlm: { username: '', password: '', domain: '', workstation: '' },
   jwt: { algorithm: 'HS256', secret: '', privateKey: '', secretBase64: false, payload: '{\n  "sub": "1234567890"\n}', header: '', addTo: 'header', headerPrefix: 'Bearer', queryParamKey: 'token' },
   oauth2: {
     accessToken: '',
@@ -43,15 +48,18 @@ const DEFAULTS = {
 
 const typeLabel = (t) => TYPES.find(([k]) => k === t)?.[1] || t;
 
+// A div, not a <label>: a label would forward its click to a dropdown trigger and toggle it twice.
 function Field({ label, children, hint }) {
   return (
-    <label className="field">
+    <div className="field">
       <span className="field-label">{label}</span>
       {children}
       {hint && <span className="hint small">{hint}</span>}
-    </label>
+    </div>
   );
 }
+
+const opts = (pairs) => pairs.map(([value, label]) => ({ value, label }));
 
 function OAuth2({ o, set, refId }) {
   const [busy, setBusy] = useState(false);
@@ -78,10 +86,7 @@ function OAuth2({ o, set, refId }) {
       </Field>
       <div className="field-row">
         <Field label="Add token to">
-          <select value={o.addTo || 'header'} onChange={(e) => set({ addTo: e.target.value })}>
-            <option value="header">Request headers</option>
-            <option value="query">Request URL (access_token)</option>
-          </select>
+          <Select value={o.addTo || 'header'} onChange={(addTo) => set({ addTo })} options={opts([['header', 'Request headers'], ['query', 'Request URL (access_token)']])} />
         </Field>
         <Field label="Header prefix">
           <input value={o.headerPrefix ?? 'Bearer'} onChange={(e) => set({ headerPrefix: e.target.value })} />
@@ -97,12 +102,16 @@ function OAuth2({ o, set, refId }) {
 
       <div className="auth-section">Configure new token</div>
       <Field label="Grant type">
-        <select value={o.grantType} onChange={(e) => set({ grantType: e.target.value })}>
-          <option value="client_credentials">Client Credentials</option>
-          <option value="password">Password Credentials</option>
-          <option value="authorization_code">Authorization Code</option>
-          <option value="refresh_token">Refresh Token</option>
-        </select>
+        <Select
+          value={o.grantType}
+          onChange={(grantType) => set({ grantType })}
+          options={opts([
+            ['client_credentials', 'Client Credentials'],
+            ['password', 'Password Credentials'],
+            ['authorization_code', 'Authorization Code'],
+            ['refresh_token', 'Refresh Token'],
+          ])}
+        />
       </Field>
       {code && (
         <>
@@ -148,10 +157,7 @@ function OAuth2({ o, set, refId }) {
           <VarInput value={o.scope} placeholder="read write" onChange={(v) => set({ scope: v })} />
         </Field>
         <Field label="Client authentication">
-          <select value={o.clientAuth || 'header'} onChange={(e) => set({ clientAuth: e.target.value })}>
-            <option value="header">Send as Basic Auth header</option>
-            <option value="body">Send client credentials in body</option>
-          </select>
+          <Select value={o.clientAuth || 'header'} onChange={(clientAuth) => set({ clientAuth })} options={opts([['header', 'Send as Basic Auth header'], ['body', 'Send client credentials in body']])} />
         </Field>
       </div>
       {!code && (
@@ -173,17 +179,14 @@ function Jwt({ j, set }) {
     <>
       <div className="field-row">
         <Field label="Algorithm">
-          <select value={j.algorithm} onChange={(e) => set({ algorithm: e.target.value })}>
-            {['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'].map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
+          <Select
+            value={j.algorithm}
+            onChange={(algorithm) => set({ algorithm })}
+            options={['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'].map((a) => ({ value: a, label: a }))}
+          />
         </Field>
         <Field label="Add JWT token to">
-          <select value={j.addTo || 'header'} onChange={(e) => set({ addTo: e.target.value })}>
-            <option value="header">Request header</option>
-            <option value="query">Query param</option>
-          </select>
+          <Select value={j.addTo || 'header'} onChange={(addTo) => set({ addTo })} options={opts([['header', 'Request header'], ['query', 'Query param']])} />
         </Field>
       </div>
       {hmac ? (
@@ -229,20 +232,12 @@ export default function AuthEditor({ auth, onChange, allowInherit = true, inheri
   return (
     <div className="auth-editor">
       <Field label="Type">
-        <select
+        <Select
           value={a.type === 'unsupported' ? '' : a.type}
-          onChange={(e) => {
-            const type = e.target.value;
-            onChange({ type, ...(DEFAULTS[type] ? { [type]: { ...DEFAULTS[type], ...(a[type] || {}) } } : {}) });
-          }}
-        >
-          {a.type === 'unsupported' && <option value="">{a.original?.type} (unsupported)</option>}
-          {types.map(([k, label]) => (
-            <option key={k} value={k}>
-              {label}
-            </option>
-          ))}
-        </select>
+          minWidth={240}
+          onChange={(type) => onChange({ type, ...(DEFAULTS[type] ? { [type]: { ...DEFAULTS[type], ...(a[type] || {}) } } : {}) })}
+          options={[...(a.type === 'unsupported' ? [{ value: '', label: `${a.original?.type} (unsupported)`, disabled: true }] : []), ...opts(types)]}
+        />
       </Field>
 
       {a.type === 'inherit' && (
@@ -281,10 +276,7 @@ export default function AuthEditor({ auth, onChange, allowInherit = true, inheri
             <VarInput className="mono" value={cfg.value} placeholder="{{apiKey}}" onChange={(v) => set({ value: v })} />
           </Field>
           <Field label="Add to">
-            <select value={cfg.in || 'header'} onChange={(e) => set({ in: e.target.value })}>
-              <option value="header">Header</option>
-              <option value="query">Query Params</option>
-            </select>
+            <Select value={cfg.in || 'header'} onChange={(v) => set({ in: v })} options={opts([['header', 'Header'], ['query', 'Query Params']])} />
           </Field>
         </>
       )}
@@ -309,6 +301,69 @@ export default function AuthEditor({ auth, onChange, allowInherit = true, inheri
           <Field label="Session token (optional)">
             <VarInput value={cfg.sessionToken} onChange={(v) => set({ sessionToken: v })} />
           </Field>
+        </>
+      )}
+      {a.type === 'hawk' && (
+        <>
+          <div className="field-row">
+            <Field label="Hawk Auth ID">
+              <VarInput value={cfg.authId} onChange={(v) => set({ authId: v })} />
+            </Field>
+            <Field label="Hawk Auth Key">
+              <VarInput value={cfg.authKey} onChange={(v) => set({ authKey: v })} />
+            </Field>
+          </div>
+          <div className="field-row">
+            <Field label="Algorithm">
+              <Select value={cfg.algorithm || 'sha256'} onChange={(algorithm) => set({ algorithm })} options={opts([['sha256', 'SHA256'], ['sha1', 'SHA1']])} />
+            </Field>
+            <Field label="User (optional)">
+              <VarInput value={cfg.user} onChange={(v) => set({ user: v })} />
+            </Field>
+          </div>
+          <div className="field-row three">
+            <Field label="Nonce" hint="Empty = random">
+              <VarInput value={cfg.nonce} onChange={(v) => set({ nonce: v })} />
+            </Field>
+            <Field label="ext">
+              <VarInput value={cfg.ext} onChange={(v) => set({ ext: v })} />
+            </Field>
+            <Field label="Timestamp" hint="Empty = now">
+              <VarInput value={cfg.timestamp} onChange={(v) => set({ timestamp: v })} />
+            </Field>
+          </div>
+          <div className="field-row">
+            <Field label="app">
+              <VarInput value={cfg.app} onChange={(v) => set({ app: v })} />
+            </Field>
+            <Field label="dlg">
+              <VarInput value={cfg.delegation} onChange={(v) => set({ delegation: v })} />
+            </Field>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={!!cfg.includePayloadHash} onChange={(e) => set({ includePayloadHash: e.target.checked })} /> Include payload hash
+          </label>
+        </>
+      )}
+      {a.type === 'ntlm' && (
+        <>
+          <div className="field-row">
+            <Field label="Username">
+              <VarInput value={cfg.username} onChange={(v) => set({ username: v })} />
+            </Field>
+            <Field label="Password">
+              <VarInput value={cfg.password} onChange={(v) => set({ password: v })} />
+            </Field>
+          </div>
+          <div className="field-row">
+            <Field label="Domain (optional)">
+              <VarInput value={cfg.domain} onChange={(v) => set({ domain: v })} />
+            </Field>
+            <Field label="Workstation (optional)">
+              <VarInput value={cfg.workstation} onChange={(v) => set({ workstation: v })} />
+            </Field>
+          </div>
+          <p className="hint small">NTLMv2. The server performs the three-step handshake on one connection, as Postman does.</p>
         </>
       )}
       {a.type === 'jwt' && <Jwt j={{ ...DEFAULTS.jwt, ...cfg }} set={set} />}

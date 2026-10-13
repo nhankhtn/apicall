@@ -49,8 +49,8 @@ pm.execution.skipRequest();                 // (pre-request) don't send
 
 // Data-driven runs: CSV column "sku"  ->  {{sku}} or pm.iterationData.get("sku")`}</pre>
         <p className="hint">
-          Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> send · <kbd>Ctrl</kbd>+<kbd>S</kbd> save now · double-click a sidebar item to rename ·
-          drag items to reorder.
+          Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> send · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> save as ·{' '}
+          <kbd>Alt</kbd>+<kbd>N</kbd> new request · <kbd>Alt</kbd>+<kbd>W</kbd> close tab · <kbd>F2</kbd> rename in the sidebar · type <kbd>{'{{'}</kbd> for variables
         </p>
       </div>
     </div>

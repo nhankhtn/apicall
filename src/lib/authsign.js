@@ -1,4 +1,4 @@
-// Request signing helpers: AWS Signature V4, HTTP Digest (RFC 2617 / 7616) and JWT (JWS compact).
+// Request signing helpers: AWS Signature V4, HTTP Digest (RFC 2617 / 7616), JWT (JWS compact) and Hawk.
 // Runs in the browser, Web Workers and Node: uses only crypto-js and WebCrypto (globalThis.crypto).
 import CryptoJS from 'crypto-js';
 
@@ -257,4 +257,71 @@ export async function signJwt({ algorithm, secret, privateKey, payload, header =
   // WebCrypto ECDSA signatures are already IEEE P1363 (r || s), which is the JWS format.
   const signature = new Uint8Array(await subtle.sign(sig, key, utf8(input)));
   return `${input}.${b64urlBytes(signature)}`;
+}
+
+// ---------- Hawk ----------
+
+const HAWK_ALGS = { sha256: [CryptoJS.SHA256, CryptoJS.HmacSHA256], sha1: [CryptoJS.SHA1, CryptoJS.HmacSHA1] };
+const NONCE_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const base64 = (wa) => wa.toString(CryptoJS.enc.Base64);
+
+function randomString(len) {
+  const buf = new Uint8Array(len);
+  globalThis.crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => NONCE_CHARS[b % NONCE_CHARS.length]).join('');
+}
+
+// The bytes the proxy will send, when known before sending (multipart and files are not).
+function hawkPayload(spec) {
+  const type = spec.body?.type || 'none';
+  const header = (spec.headers || []).find((h) => h.key && h.key.trim().toLowerCase() === 'content-type');
+  const contentType = (header?.value || (type === 'urlencoded' ? 'application/x-www-form-urlencoded' : '')).split(';')[0].trim().toLowerCase();
+  if (type === 'none') return { contentType, payload: '' };
+  if (type === 'text') return { contentType, payload: spec.body.text ?? '' };
+  if (type === 'urlencoded') return { contentType, payload: new URLSearchParams((spec.body.fields || []).map((f) => [f.key, f.value ?? ''])).toString() };
+  return null;
+}
+
+const hawkEscape = (s) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+// cfg: { authId, authKey, algorithm, nonce, ext, app, delegation, timestamp, includePayloadHash }.
+// opts: { now } (ms) for deterministic output in tests.
+export function hawkAuthorization(spec, cfg, opts = {}) {
+  const alg = HAWK_ALGS[(cfg.algorithm || 'sha256').toLowerCase()];
+  if (!alg) throw new Error(`Unsupported Hawk algorithm: ${cfg.algorithm}`);
+  const [hashFn, hmacFn] = alg;
+  const url = new URL(spec.url);
+  const ts = String(cfg.timestamp || Math.floor((opts.now ?? Date.now()) / 1000));
+  const nonce = cfg.nonce || randomString(6);
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  const ext = cfg.ext || '';
+  const app = cfg.app || '';
+  const dlg = app ? cfg.delegation || '' : '';
+
+  let hash = '';
+  const p = cfg.includePayloadHash ? hawkPayload(spec) : null;
+  if (p) hash = base64(hashFn(`hawk.1.payload\n${p.contentType}\n${p.payload}\n`));
+
+  let normalized = [
+    'hawk.1.header',
+    ts,
+    nonce,
+    (spec.method || 'GET').toUpperCase(),
+    url.pathname + url.search,
+    url.hostname.toLowerCase(),
+    port,
+    hash,
+    ext.replace(/\\/g, '\\\\').replace(/\n/g, '\\n'),
+  ].join('\n');
+  normalized += '\n';
+  if (app) normalized += `${app}\n${dlg}\n`;
+  const mac = base64(hmacFn(normalized, cfg.authKey ?? ''));
+
+  const parts = [`id="${hawkEscape(cfg.authId ?? '')}"`, `ts="${ts}"`, `nonce="${hawkEscape(nonce)}"`];
+  if (hash) parts.push(`hash="${hash}"`);
+  if (ext) parts.push(`ext="${hawkEscape(ext)}"`);
+  parts.push(`mac="${mac}"`);
+  if (app) parts.push(`app="${hawkEscape(app)}"`);
+  if (app && dlg) parts.push(`dlg="${hawkEscape(dlg)}"`);
+  return `Hawk ${parts.join(', ')}`;
 }

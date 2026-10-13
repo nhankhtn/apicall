@@ -3,6 +3,7 @@ import { VarInput } from './vars.jsx';
 import { uploadFile, toast } from '../actions.js';
 import { errMsg } from '../lib/util.js';
 import { IconX } from './icons.jsx';
+import { Select } from './Menu.jsx';
 
 const toBulk = (rows) => rows.map((r) => `${r.enabled === false ? '//' : ''}${r.key}: ${r.value ?? ''}`).join('\n');
 
@@ -128,14 +129,16 @@ export default function KeyValueEditor({
                     />
                   )}
                   {files && !ghost && (
-                    <select
+                    <Select
                       className="kv-type"
                       value={row.type || 'text'}
-                      onChange={(e) => update(i, e.target.value === 'file' ? { type: 'file', value: '' } : { type: 'text', fileId: null, fileName: '' })}
-                    >
-                      <option value="text">Text</option>
-                      <option value="file">File</option>
-                    </select>
+                      minWidth={110}
+                      onChange={(t) => update(i, t === 'file' ? { type: 'file', value: '' } : { type: 'text', fileId: null, fileName: '' })}
+                      options={[
+                        { value: 'text', label: 'Text' },
+                        { value: 'file', label: 'File' },
+                      ]}
+                    />
                   )}
                 </div>
                 <div className="kv-cell">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useUi, useWs, setUi } from '../store.js';
 import * as A from '../actions.js';
+import { PROTOCOL_TAG, isHttp } from '../lib/model.js';
 import { formatMs } from '../lib/util.js';
 import { statusClass } from './ResponseView.jsx';
 import { IconCaret, IconCollection, IconEnv, IconExample, IconFolder, IconGlobe, IconImport, IconMore, IconPlus, IconSearch } from './icons.jsx';
@@ -152,7 +153,11 @@ function Tree() {
           <span className="caret-spacer" />
         )}
         {isRequest ? (
-          <span className={`method-tag m-${method}`}>{SHORT[method] || method}</span>
+          isHttp(node) ? (
+            <span className={`method-tag m-${method}`}>{SHORT[method] || method}</span>
+          ) : (
+            <span className={`method-tag p-${node.protocol}`}>{PROTOCOL_TAG[node.protocol]}</span>
+          )
         ) : node.type === 'folder' ? (
           <IconFolder className="node-ico" />
         ) : (

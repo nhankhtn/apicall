@@ -1,7 +1,7 @@
 // Turns an editable request (after pre-request scripts) into the exact spec sent to the proxy.
 import { eqi } from './util.js';
 import { unresolvedIn } from './vars.js';
-import { awsSigV4, signJwt } from './authsign.js';
+import { awsSigV4, hawkAuthorization, signJwt } from './authsign.js';
 import { cookiesFor, cookieHeader } from './cookies.js';
 
 const RAW_CONTENT_TYPE = {
@@ -174,6 +174,29 @@ async function applyAuth(a, spec, R, ctx) {
         spec.headers = spec.headers.filter((x) => !eqi(x.key, h.key));
         spec.headers.push(h);
       }
+      return undefined;
+    }
+    case 'hawk': {
+      if (hasHeader(headers, 'authorization')) return undefined;
+      const h = a.hawk || {};
+      return setAuthorization(
+        hawkAuthorization(spec, {
+          authId: R(h.authId),
+          authKey: R(h.authKey),
+          algorithm: R(h.algorithm) || 'sha256',
+          nonce: R(h.nonce),
+          ext: R(h.ext),
+          app: R(h.app),
+          delegation: R(h.delegation),
+          timestamp: R(h.timestamp),
+          includePayloadHash: !!h.includePayloadHash,
+        }),
+      );
+    }
+    case 'ntlm': {
+      // NTLM authenticates the connection with a 3-leg handshake, which only the server-side proxy can do.
+      const n = a.ntlm || {};
+      spec.ntlm = { username: R(n.username), password: R(n.password), domain: R(n.domain), workstation: R(n.workstation) };
       return undefined;
     }
     default:

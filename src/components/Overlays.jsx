@@ -1,62 +1,19 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ContextMenuAt, Select } from './Menu.jsx';
 import { useUi, useWs, setUi, mutate, LS } from '../store.js';
 import { readFileText, errMsg } from '../lib/util.js';
 import { parseSetCookie, formatCookie, isExpired } from '../lib/cookies.js';
 import { LANGUAGES, generateCode } from '../lib/codegen.js';
 import * as A from '../actions.js';
+import { requestPersistence } from '../persist.js';
 import CodeEditor from './CodeEditor.jsx';
 import { IconX, IconCopy } from './icons.jsx';
 
 export function ContextMenu() {
   const menu = useUi((s) => s.menu);
-  const ref = useRef(null);
-  const [pos, setPos] = useState(null);
-
-  useLayoutEffect(() => {
-    if (!menu || !ref.current) return setPos(null);
-    const { width, height } = ref.current.getBoundingClientRect();
-    setPos({ left: Math.min(menu.x, window.innerWidth - width - 8), top: Math.min(menu.y, window.innerHeight - height - 8) });
-  }, [menu]);
-
-  useEffect(() => {
-    if (!menu) return undefined;
-    const close = (e) => {
-      if (e.type === 'keydown' && e.key !== 'Escape') return;
-      if (e.type === 'mousedown' && ref.current?.contains(e.target)) return;
-      A.closeMenu();
-    };
-    window.addEventListener('mousedown', close);
-    window.addEventListener('keydown', close);
-    window.addEventListener('blur', A.closeMenu);
-    return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('keydown', close);
-      window.removeEventListener('blur', A.closeMenu);
-    };
-  }, [menu]);
-
   if (!menu) return null;
-  return (
-    <div ref={ref} className="menu glass" style={pos || { left: menu.x, top: menu.y, visibility: 'hidden' }}>
-      {menu.items.map((it, i) =>
-        it.sep ? (
-          <div key={i} className="menu-sep" />
-        ) : (
-          <button
-            key={i}
-            className={`menu-item ${it.danger ? 'danger' : ''}`}
-            disabled={it.disabled}
-            onClick={() => {
-              A.closeMenu();
-              it.onClick();
-            }}
-          >
-            {it.label}
-          </button>
-        ),
-      )}
-    </div>
-  );
+  // Keyed by position so a second right-click re-places the menu.
+  return <ContextMenuAt key={`${menu.x},${menu.y}`} x={menu.x} y={menu.y} items={menu.items} onClose={A.closeMenu} />;
 }
 
 export function Toasts() {
@@ -173,17 +130,14 @@ function ImportModal({ onClose }) {
               }}
             />
             {isCurl && (
-              <label className="field inline">
+              <div className="field inline">
                 <span className="field-label">Open as</span>
-                <select value={curlTarget} onChange={(e) => setCurlTarget(e.target.value)}>
-                  <option value="">New unsaved request tab</option>
-                  {collections.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      Request in "{c.name}"
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <Select
+                  value={curlTarget}
+                  onChange={setCurlTarget}
+                  options={[{ value: '', label: 'New unsaved request tab' }, ...collections.map((c) => ({ value: c.id, label: `Request in "${c.name}"` }))]}
+                />
+              </div>
             )}
           </>
         )}
@@ -288,6 +242,47 @@ function VaultEditor() {
   );
 }
 
+function DataTab() {
+  const storage = useUi((s) => s.storage);
+  const mb = (n) => (n == null ? '?' : `${(n / 1024 / 1024).toFixed(n < 1024 * 1024 ? 2 : 1)} MB`);
+  return (
+    <>
+      <div className="setting-row">
+        <div>
+          <div className="setting-label">Stored in this browser (IndexedDB)</div>
+          <div className="hint small">
+            Collections, environments, history, run results and attachments are kept by this browser for <b>{location.origin}</b>. Another browser, profile, host or
+            port (e.g. localhost vs 127.0.0.1, :3939 vs :5173) has its own separate workspace.
+          </div>
+        </div>
+      </div>
+      <div className="setting-row">
+        <div>
+          <div className="setting-label">Protected from automatic cleanup</div>
+          <div className="hint small">
+            {storage?.persisted
+              ? 'Yes: the browser will not evict this data when disk space runs low. Clearing site data in the browser still deletes it.'
+              : 'No: under disk pressure the browser may evict this data. Allow persistent storage, and keep backups.'}
+            {storage?.usage != null && ` Using ${mb(storage.usage)}${storage.quota ? ` of ${mb(storage.quota)}` : ''}.`}
+          </div>
+        </div>
+        <button className="btn small" disabled={storage?.persisted} onClick={() => requestPersistence()}>
+          {storage?.persisted ? 'Protected' : 'Request'}
+        </button>
+      </div>
+      <div className="setting-row">
+        <div>
+          <div className="setting-label">Backup</div>
+          <div className="hint small">Everything in the workspace, attachments included. Restore it on any machine through Import.</div>
+        </div>
+        <button className="btn small" onClick={A.exportWorkspace}>
+          Export backup
+        </button>
+      </div>
+    </>
+  );
+}
+
 function SettingsModal({ onClose }) {
   const settings = useWs((s) => s.ws.settings);
   const [tab, setTab] = useState('general');
@@ -343,17 +338,7 @@ function SettingsModal({ onClose }) {
           </>
         )}
         {tab === 'vault' && <VaultEditor />}
-        {tab === 'data' && (
-          <div className="field">
-            <span className="field-label">Workspace backup</span>
-            <div>
-              <button className="btn" onClick={A.exportWorkspace}>
-                Export all collections, environments, globals and settings
-              </button>
-            </div>
-            <p className="hint small">Restore it through Import. Data lives on the server in data/ (workspace.json, history.json, runs.json, files/).</p>
-          </div>
-        )}
+        {tab === 'data' && <DataTab />}
       </div>
     </Modal>
   );
@@ -397,6 +382,18 @@ function CookiesModal({ onClose }) {
             Add
           </button>
         </div>
+        {!domains.length && !domain ? (
+          <div className="cookie-empty">
+            <p>
+              <b>The cookie jar is empty.</b> When a response sets cookies (<code>Set-Cookie</code>, e.g. a login session), they are stored here per domain and sent
+              automatically with later requests to the same domain, as a browser does.
+            </p>
+            <p className="hint small">
+              To use a cookie copied from your browser's DevTools, type its domain above, press Add, then enter it as <code>name=value; Path=/</code>. Turn the jar
+              off in Settings → General, or per request in its Settings tab.
+            </p>
+          </div>
+        ) : (
         <div className="cookie-grid">
           <div className="cookie-domains">
             {[...new Set([...domains, domain].filter(Boolean))].map((d) => (
@@ -405,7 +402,6 @@ function CookiesModal({ onClose }) {
                 <span className="hint small">{cookies.filter((c) => c.domain === d).length}</span>
               </button>
             ))}
-            {!domains.length && !domain && <p className="hint small">No cookies yet. Responses with Set-Cookie fill the jar automatically.</p>}
           </div>
           <div className="cookie-list">
             {domain && (
@@ -447,6 +443,7 @@ function CookiesModal({ onClose }) {
             )}
           </div>
         </div>
+        )}
       </div>
     </Modal>
   );
@@ -460,7 +457,7 @@ function SaveAsModal({ refId, onClose }) {
   const [newCol, setNewCol] = useState('');
   const options = [];
   const walk = (n, depth) => {
-    options.push({ id: n.id, label: `${'  '.repeat(depth)}${n.type === 'collection' ? '▣' : '▸'} ${n.name}` });
+    options.push({ id: n.id, depth, type: n.type, name: n.name });
     n.items.filter((x) => x.type === 'folder').forEach((x) => walk(x, depth + 1));
   };
   ws.collections.forEach((c) => walk(c, 0));
@@ -479,17 +476,16 @@ function SaveAsModal({ refId, onClose }) {
           <span className="field-label">Request name</span>
           <input autoFocus value={name} placeholder={req.name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
         </label>
-        <label className="field">
+        <div className="field">
           <span className="field-label">Save to</span>
-          <select value={parentId} onChange={(e) => setParentId(e.target.value)} disabled={!!newCol.trim()}>
-            {!options.length && <option value="">(no collections yet)</option>}
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Select
+            value={parentId}
+            disabled={!!newCol.trim() || !options.length}
+            onChange={setParentId}
+            display={options.length ? undefined : '(no collections yet)'}
+            options={options.map((o) => ({ value: o.id, label: <span style={{ paddingLeft: o.depth * 14 }}>{o.type === 'collection' ? '▣' : '▸'} {o.name}</span> }))}
+          />
+        </div>
         <label className="field">
           <span className="field-label">…or a new collection</span>
           <input value={newCol} placeholder="New collection name" onChange={(e) => setNewCol(e.target.value)} />
@@ -573,13 +569,7 @@ function CodeModal({ refId, onClose }) {
     <Modal title="Code snippet" onClose={onClose} size="wide">
       <div className="modal-body code-modal">
         <div className="code-tools">
-          <select value={lang} onChange={(e) => setLang(e.target.value)}>
-            {LANGUAGES.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+          <Select value={lang} onChange={setLang} minWidth={220} options={LANGUAGES.map((l) => ({ value: l.id, label: l.label }))} />
           <span className="hint small">Variables resolved with the active environment. Pre-request scripts are not run.</span>
           <span className="spacer" />
           <button className="btn small" onClick={() => navigator.clipboard.writeText(code).then(() => A.toast('Snippet copied', 'success'))}>

@@ -12,10 +12,26 @@ export { createVars, toMap, writeBack, unresolvedIn, DYNAMIC_NAMES, sameScope, p
 
 // ---------- Transport ----------
 
+// Attachments live in the browser's IndexedDB; the proxy receives their bytes inline.
+async function inlineFiles(spec) {
+  const b = spec.body;
+  if (!b || (b.type !== 'formdata' && b.type !== 'binary')) return spec;
+  const { filesGet, blobToBase64 } = await import('../db.js');
+  const fill = async (part) => {
+    if (!part.fileId) return part;
+    const file = await filesGet(part.fileId);
+    if (!file) throw new Error(`Attached file "${part.fileName || part.fileId}" is missing; select it again`);
+    return { ...part, data: await blobToBase64(file.blob), contentType: file.type, fileName: part.fileName || file.name };
+  };
+  const body = b.type === 'binary' ? await fill(b) : { ...b, fields: await Promise.all(b.fields.map((f) => (f.type === 'file' ? fill(f) : f))) };
+  return { ...spec, body };
+}
+
 async function browserTransport(spec, signal) {
   let r;
+  const payload = JSON.stringify(await inlineFiles(spec));
   try {
-    r = await fetch('/api/proxy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(spec), signal });
+    r = await fetch('/api/proxy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload, signal });
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('Aborted');
     throw new Error(`Cannot reach the ApiCall Runner server: ${e.message}`);

@@ -72,7 +72,7 @@ function fail(msg) {
 const [command, target] = positionals;
 if (opt.help || !command) {
   console.log(HELP);
-  process.exit(command ? 0 : 2);
+  process.exit(opt.help ? 0 : 2);
 }
 
 const dataDir = path.resolve(opt['data-dir'] || process.env.DATA_DIR || path.join(ROOT, 'data'));
@@ -128,7 +128,7 @@ for (const [k, v] of kvArgs(opt['env-var'])) scopes.environment.set(k, v);
 for (const [k, v] of kvArgs(opt['global-var'])) scopes.globals.set(k, v);
 
 // Entries: whole collection, or the named folders in collection order.
-let entries = M.flattenRequests(collection, []);
+let entries = M.flattenRequests(collection, []).filter((e) => M.isHttp(e.item));
 if (opt.folder?.length) {
   const wanted = new Set(opt.folder);
   entries = entries.filter((e) => e.chain.some((n) => n.type === 'folder' && wanted.has(n.name)));

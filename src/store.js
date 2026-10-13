@@ -49,7 +49,8 @@ export const LS = {
   },
 };
 
-const PERSISTED_UI = ['envId', 'openTabs', 'activeTab', 'drafts', 'expanded', 'subTabs', 'editorHeight', 'sidebarWidth', 'sidebarTab', 'vault'];
+// Drafts and vault are larger and live in IndexedDB (see persist.js); these are small preferences.
+const PERSISTED_UI = ['envId', 'openTabs', 'activeTab', 'expanded', 'subTabs', 'editorHeight', 'sidebarWidth', 'sidebarTab'];
 
 // Tabs from before the tab bar existed were a single "view".
 function initialTabs() {
@@ -68,13 +69,15 @@ export const useUi = create(() => {
     openTabs,
     activeTab: LS.get('activeTab', openTabs[0]?.id || null),
     // Unsaved request edits keyed by request id (or a tmp- id for requests not saved yet).
-    drafts: LS.get('drafts', {}),
+    drafts: {},
     expanded: LS.get('expanded', []),
     subTabs: { req: 'params', resp: 'body', node: 'overview', runner: 'functional', ...LS.get('subTabs', LS.get('tabs', {})) },
     editorHeight: LS.get('editorHeight', 280),
     sidebarWidth: LS.get('sidebarWidth', 300),
     sidebarTab: LS.get('sidebarTab', 'collections'),
-    vault: LS.get('vault', []),
+    vault: [],
+    storage: null, // { persisted, usage, quota } from navigator.storage
+    capabilities: { realtime: true }, // what this deployment's server supports (/api/capabilities)
     filter: '',
     renaming: null,
     saveStatus: 'saved',
@@ -123,5 +126,3 @@ export function toggleTheme() {
 }
 
 export const setSubTab = (group, tab) => setUi((s) => ({ subTabs: { ...s.subTabs, [group]: tab } }));
-// Kept for components that still call it by its old name.
-export const setTab = setSubTab;

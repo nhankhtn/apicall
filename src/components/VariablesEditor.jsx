@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { persistAllValues, resetAllValues } from '../actions.js';
 import { IconX } from './icons.jsx';
+import { Select } from './Menu.jsx';
 
 const blank = () => ({ key: '', value: '', enabled: true, type: 'default' });
 
@@ -50,10 +51,17 @@ export default function VariablesEditor({ rows, onChange, search = true }) {
                 <input value={ghost ? '' : row.key} placeholder="Add new variable" spellCheck={false} onChange={(e) => (ghost ? add({ key: e.target.value }) : update(i, { key: e.target.value }))} />
               </div>
               <div className="kv-cell">
-                <select className="kv-type" disabled={ghost} value={ghost ? 'default' : row.type || 'default'} onChange={(e) => update(i, { type: e.target.value })}>
-                  <option value="default">default</option>
-                  <option value="secret">secret</option>
-                </select>
+                <Select
+                  className="kv-type"
+                  disabled={ghost}
+                  value={ghost ? 'default' : row.type || 'default'}
+                  minWidth={120}
+                  onChange={(type) => update(i, { type })}
+                  options={[
+                    { value: 'default', label: 'default' },
+                    { value: 'secret', label: 'secret' },
+                  ]}
+                />
               </div>
               <div className="kv-cell">
                 <input

@@ -6,6 +6,8 @@ import * as M from './lib/model.js';
 import { toMap, writeBack, createVars, resolveRequest, toCurl, sameScope } from './lib/engine.js';
 import { uid, clone, download, errMsg } from './lib/util.js';
 import { executeInWorker, fetchTokenInWorker } from './engineClient.js';
+import * as db from './db.js';
+import { stopSession } from './realtime.js';
 
 // ---------- UI helpers ----------
 
@@ -44,12 +46,21 @@ export function savedRequest(refId) {
 
 export const getRequest = (refId, s = useUi.getState()) => s.drafts[refId] ?? savedRequest(refId);
 
+// Compares what matters for saving: settings of protocols the request is not using (left over
+// from trying another type) and remembered per-protocol URLs do not count as changes.
+const PROTOCOL_KEYS = { websocket: 'ws', socketio: 'socketio', mqtt: 'mqtt', grpc: 'grpc' };
+function comparable(r) {
+  const keep = PROTOCOL_KEYS[r.protocol || 'http'];
+  return _.omit(r, ['urlByProtocol', ...Object.values(PROTOCOL_KEYS).filter((k) => k !== keep)]);
+}
+const sameRequest = (a, b) => _.isEqual(comparable(a), comparable(b));
+
 export function isDirty(refId, s = useUi.getState()) {
   const d = s.drafts[refId];
   if (!d) return false;
   if (d._tmp) return true;
   const saved = savedRequest(refId);
-  return !saved || !_.isEqual(d, saved);
+  return !saved || !sameRequest(d, saved);
 }
 
 // ---------- Tabs ----------
@@ -85,6 +96,8 @@ export const pinTab = (id) =>
   setUi((s) => (s.openTabs.some((t) => t.id === id && t.preview) ? { openTabs: s.openTabs.map((t) => (t.id === id ? { ...t, preview: false } : t)) } : {}));
 
 function dropTabs(ids) {
+  // Connections stay open while their tab is merely hidden; closing the tab ends them.
+  for (const t of useUi.getState().openTabs) if (ids.includes(t.id) && t.kind === 'request') stopSession(t.refId);
   setUi((s) => {
     const gone = new Set(ids);
     const tabs = s.openTabs.filter((t) => !gone.has(t.id));
@@ -149,7 +162,7 @@ export function updateRequest(refId, fn) {
     const next = produce(base, fn);
     const saved = savedRequest(refId);
     const drafts = { ...s.drafts };
-    if (saved && !next._tmp && _.isEqual(next, saved)) delete drafts[refId];
+    if (saved && !next._tmp && sameRequest(next, saved)) delete drafts[refId];
     else drafts[refId] = next;
     const id = tabKey('request', refId);
     return { drafts, openTabs: s.openTabs.map((t) => (t.id === id && t.preview ? { ...t, preview: false } : t)) };
@@ -158,7 +171,7 @@ export function updateRequest(refId, fn) {
 
 export function newRequestTab(seed) {
   const id = `tmp-${uid()}`;
-  const req = { ...M.newRequest('Untitled Request'), ...(seed ? clone(seed) : {}), id, _tmp: true };
+  const req = { ...M.newRequest('Untitled Request', seed?.protocol || 'http'), ...(seed ? clone(seed) : {}), id, _tmp: true };
   M.normalizeRequest(req);
   setUi((s) => ({ drafts: { ...s.drafts, [id]: req } }));
   openTab('request', id, { preview: false });
@@ -370,8 +383,10 @@ export function exportEnvironment(id) {
   if (env) download(`${fileSafe(env.name)}.postman_environment.json`, JSON.stringify(M.exportPostmanEnvironment(env), null, 2));
 }
 
-export function exportWorkspace() {
-  download(`apicall-workspace-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(getWs(), null, 2));
+// Backup of everything in this browser's workspace, attachments included (base64).
+export async function exportWorkspace() {
+  const files = await Promise.all((await db.filesAll()).map(async (f) => ({ id: f.id, name: f.name, type: f.type, data: await db.blobToBase64(f.blob) })));
+  download(`apicall-workspace-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ ...getWs(), files }, null, 2));
 }
 
 // Accepts a Postman collection/environment, a workspace backup, or a cURL command.
@@ -405,6 +420,7 @@ export function importText(text, { curlTarget } = {}) {
     else if (Array.isArray(d?.collections) && Array.isArray(d?.environments)) {
       // Workspace backup: give everything fresh ids so it can sit next to the originals.
       const backup = M.normalizeWorkspace(d);
+      for (const f of d.files || []) db.filesPut({ id: f.id, name: f.name, type: f.type, size: 0, blob: db.base64ToBlob(f.data, f.type) }).catch(() => {});
       cols.push(...backup.collections.map(M.cloneWithNewIds));
       envs.push(...backup.environments.map((e) => ({ ...e, id: uid() })));
       if (backup.globals.length) {
@@ -496,7 +512,7 @@ function addHistory(item, rec) {
     error: rec.error || null,
   };
   setUi((s) => ({ history: [entry, ...s.history].slice(0, HISTORY_LIMIT) }));
-  fetch('/api/history', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {});
+  db.historyAdd(entry).catch((e) => toast(`Cannot save history: ${errMsg(e)}`, 'error'));
 }
 
 export function openHistoryEntry(entry) {
@@ -505,13 +521,13 @@ export function openHistoryEntry(entry) {
 
 export function deleteHistoryEntry(id) {
   setUi((s) => ({ history: s.history.filter((h) => h.id !== id) }));
-  fetch(`/api/history/${id}`, { method: 'DELETE' }).catch(() => {});
+  db.historyDelete(id).catch(() => {});
 }
 
 export function clearHistory() {
   if (!window.confirm('Clear all request history?')) return;
   setUi({ history: [] });
-  fetch('/api/history', { method: 'DELETE' }).catch(() => {});
+  db.historyClear().catch(() => {});
 }
 
 export function jobContext() {
@@ -699,12 +715,15 @@ export function deleteExample(refId, exampleId) {
 
 // ---------- Files ----------
 
+// Attachments are kept in this browser (IndexedDB) and sent inline with the request.
 export async function uploadFile(file) {
-  const r = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
-    method: 'POST',
-    headers: { 'content-type': file.type || 'application/octet-stream' },
-    body: file,
-  });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Upload failed (HTTP ${r.status})`);
-  return r.json();
+  const meta = { id: uid(), name: file.name, type: file.type || 'application/octet-stream', size: file.size };
+  await db.filesPut({ ...meta, blob: file });
+  return meta;
+}
+
+// {{variable}} resolver for a request (active environment, its collection, globals, vault).
+export function varsFor(refId) {
+  const f = M.findNode(getWs(), refId);
+  return createVars({ ...scopesFor(f?.collection, currentEnv()), local: new Map(), data: new Map(), vault: vaultMap() });
 }

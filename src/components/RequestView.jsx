@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUi, useWs, setSubTab, setUi } from '../store.js';
-import { METHODS, effectiveAuth, findNode } from '../lib/model.js';
+import { effectiveAuth, findNode, isHttp, convertRequest, PROTOCOLS } from '../lib/model.js';
+import RealtimeView from './RealtimeView.jsx';
+import GrpcView from './GrpcView.jsx';
+import { Select, MethodSelect } from './Menu.jsx';
 import { parseQuery, withQuery, syncPathVars } from '../lib/build.js';
 import * as A from '../actions.js';
 import KeyValueEditor from './KeyValueEditor.jsx';
@@ -77,13 +80,7 @@ function BodyEditor({ body, onChange }) {
         ))}
         {b.mode === 'raw' && (
           <>
-            <select className="small-select" value={b.rawLang || 'text'} onChange={(e) => set({ rawLang: e.target.value })}>
-              {RAW_LANGS.map(([k, label]) => (
-                <option key={k} value={k}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <Select className="small-select" value={b.rawLang || 'text'} minWidth={140} onChange={(rawLang) => set({ rawLang })} options={RAW_LANGS.map(([value, label]) => ({ value, label }))} />
             {b.rawLang === 'json' && (
               <button className="link-btn" onClick={beautify}>
                 Beautify
@@ -134,11 +131,16 @@ function TriState({ label, hint, value, onChange, globalValue }) {
         <div className="setting-label">{label}</div>
         <div className="hint small">{hint}</div>
       </div>
-      <select value={value === undefined ? 'default' : value ? 'on' : 'off'} onChange={(e) => onChange(e.target.value === 'default' ? undefined : e.target.value === 'on')}>
-        <option value="default">Default ({globalValue ? 'on' : 'off'})</option>
-        <option value="on">On</option>
-        <option value="off">Off</option>
-      </select>
+      <Select
+        className="setting-select"
+        value={value === undefined ? 'default' : value ? 'on' : 'off'}
+        onChange={(v) => onChange(v === 'default' ? undefined : v === 'on')}
+        options={[
+          { value: 'default', label: `Default (${globalValue ? 'on' : 'off'})` },
+          { value: 'on', label: 'On' },
+          { value: 'off', label: 'Off' },
+        ]}
+      />
     </div>
   );
 }
@@ -186,11 +188,71 @@ function useSplitter() {
   return [height, start];
 }
 
+// Name, unsaved dot, Save / Save As, code snippet and "more" menu; shared by every request kind.
+export function RequestHeader({ refId, r, found }) {
+  const dirty = useUi((s) => A.isDirty(refId, s));
+  const http = isHttp(r);
+  const chain = found?.chain || [];
+  const upd = (fn) => A.updateRequest(refId, fn);
+  const saveMenu = (e) =>
+    A.openMenu(e, [
+      { label: 'Save As…', onClick: () => setUi({ modal: { type: 'saveAs', refId } }) },
+      { label: 'Revert changes', disabled: !dirty || r._tmp, onClick: () => A.revertRequest(refId) },
+    ]);
+  const more = (e) =>
+    A.openMenu(e, [
+      ...(http
+        ? [
+            { label: 'Copy as cURL', onClick: () => A.copyAsCurl(refId) },
+            { label: 'Generate code snippet', onClick: () => setUi({ modal: { type: 'code', refId } }) },
+          ]
+        : []),
+      ...(found
+        ? [
+            { label: 'Duplicate', onClick: () => A.duplicateNode(refId) },
+            { sep: true },
+            { label: 'Delete', danger: true, onClick: () => A.deleteNode(refId) },
+          ]
+        : []),
+    ]);
+  return (
+    <div className="view-head">
+      <div className="crumbs">{found ? chain.map((n) => <span key={n.id}>{n.name} /</span>) : <span className="unsaved-tag">Unsaved request</span>}</div>
+      <input className="title-input" value={r.name} spellCheck={false} onChange={(e) => upd((n) => void (n.name = e.target.value))} />
+      {dirty && <span className="dirty-dot" title="Unsaved changes" />}
+      <Select
+        className="type-select"
+        title="Request type"
+        ariaLabel="Request type"
+        value={r.protocol || 'http'}
+        minWidth={170}
+        onChange={(protocol) => upd((n) => convertRequest(n, protocol))}
+        options={PROTOCOLS.map(([value, label]) => ({ value, label }))}
+      />
+      <div className="split-btn">
+        <button className="btn small" disabled={!dirty} onClick={() => A.saveRequest(refId)} title="Save (Ctrl+S)">
+          Save
+        </button>
+        <button className="btn small split-caret" onClick={saveMenu} title="More save options">
+          <IconCaretDown />
+        </button>
+      </div>
+      {http && (
+        <button className="icon-btn" title="Code snippet" onClick={() => setUi({ modal: { type: 'code', refId } })}>
+          <IconCode />
+        </button>
+      )}
+      <button className="icon-btn" title="More" onClick={more}>
+        <IconMore />
+      </button>
+    </div>
+  );
+}
+
 function RequestEditor({ refId, r, found }) {
   const tab = useUi((s) => s.subTabs.req);
   const record = useUi((s) => s.responses[refId]);
   const sending = useUi((s) => !!s.sending[refId]);
-  const dirty = useUi((s) => A.isDirty(refId, s));
   const [editorHeight, startResize] = useSplitter();
   const urlRef = useRef(null);
   const upd = (fn) => A.updateRequest(refId, fn);
@@ -224,54 +286,12 @@ function RequestEditor({ refId, r, found }) {
       n.pathVars = syncPathVars(url, n.pathVars);
     });
 
-  const saveMenu = (e) =>
-    A.openMenu(e, [
-      { label: 'Save As…', onClick: () => setUi({ modal: { type: 'saveAs', refId } }) },
-      { label: 'Revert changes', disabled: !dirty || r._tmp, onClick: () => A.revertRequest(refId) },
-    ]);
-  const more = (e) =>
-    A.openMenu(e, [
-      { label: 'Copy as cURL', onClick: () => A.copyAsCurl(refId) },
-      { label: 'Generate code snippet', onClick: () => setUi({ modal: { type: 'code', refId } }) },
-      ...(found
-        ? [
-            { label: 'Duplicate', onClick: () => A.duplicateNode(refId) },
-            { sep: true },
-            { label: 'Delete', danger: true, onClick: () => A.deleteNode(refId) },
-          ]
-        : []),
-    ]);
-
   return (
     <div className="request-view">
-      <div className="view-head">
-        <div className="crumbs">{found ? chain.map((n) => <span key={n.id}>{n.name} /</span>) : <span className="unsaved-tag">Unsaved request</span>}</div>
-        <input className="title-input" value={r.name} spellCheck={false} onChange={(e) => upd((n) => void (n.name = e.target.value))} />
-        {dirty && <span className="dirty-dot" title="Unsaved changes" />}
-        <div className="split-btn">
-          <button className="btn small" disabled={!dirty} onClick={() => A.saveRequest(refId)} title="Save (Ctrl+S)">
-            Save
-          </button>
-          <button className="btn small split-caret" onClick={saveMenu} title="More save options">
-            <IconCaretDown />
-          </button>
-        </div>
-        <button className="icon-btn" title="Code snippet" onClick={() => setUi({ modal: { type: 'code', refId } })}>
-          <IconCode />
-        </button>
-        <button className="icon-btn" title="More" onClick={more}>
-          <IconMore />
-        </button>
-      </div>
+      <RequestHeader refId={refId} r={r} found={found} />
 
       <div className="url-bar">
-        <select className={`method-select m-${r.method}`} value={r.method} onChange={(e) => upd((n) => void (n.method = e.target.value))}>
-          {METHODS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
+        <MethodSelect value={r.method} onChange={(method) => upd((n) => void (n.method = method))} />
         <VarInput
           inputRef={urlRef}
           className="url-input mono"
@@ -383,7 +403,13 @@ export default function RequestView({ refId }) {
   if (!r) return <div className="empty-view">This request no longer exists.</div>;
   return (
     <VarsProvider refId={refId}>
-      <RequestEditor refId={refId} r={r} found={found} />
+      {isHttp(r) ? (
+        <RequestEditor refId={refId} r={r} found={found} />
+      ) : r.protocol === 'grpc' ? (
+        <GrpcView refId={refId} r={r} found={found} />
+      ) : (
+        <RealtimeView refId={refId} r={r} found={found} />
+      )}
     </VarsProvider>
   );
 }
