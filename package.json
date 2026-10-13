@@ -1,0 +1,40 @@
+{
+  "name": "apicall-runner",
+  "version": "1.0.0",
+  "description": "Postman-like API client and collection runner",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c yellow,cyan \"node --watch server.js\" \"vite\"",
+    "build": "vite build",
+    "start": "node server.js",
+    "cli": "node bin/cli.mjs"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.2",
+    "@codemirror/lang-json": "^6.0.1",
+    "@codemirror/search": "^6.7.2",
+    "@uiw/react-codemirror": "^4.23.6",
+    "ajv": "^8.17.1",
+    "chai": "^4.5.0",
+    "cheerio": "^1.0.0",
+    "crypto-js": "^4.2.0",
+    "fast-xml-parser": "^4.5.0",
+    "handlebars": "^4.7.8",
+    "immer": "^10.1.1",
+    "lodash": "^4.17.21",
+    "moment": "^2.30.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "undici": "^7.16.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "vite": "^5.4.11"
+  },
+  "private": true,
+  "type": "module",
+  "bin": {
+    "apicall": "bin/cli.mjs"
+  }
+}
