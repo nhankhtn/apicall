@@ -2,6 +2,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useUi, useWs, setUi, toggleTheme } from '../store.js';
 import { IconEnv, IconGear, IconImport, IconLogo, IconMoon, IconSun, IconCookie, IconPlus } from './icons.jsx';
 import { newRequestTab, openMenu } from '../actions.js';
+import InstallButton from './InstallButton.jsx';
 import { PROTOCOLS } from '../lib/model.js';
 import { Select } from './Menu.jsx';
 
@@ -38,6 +39,7 @@ export default function Topbar() {
           options={[{ value: '', label: 'No environment' }, ...envs.map((e) => ({ value: e.id, label: e.name }))]}
         />
       </div>
+      <InstallButton />
       <button
         className="topbar-btn"
         title="New request (Alt+N for HTTP)"

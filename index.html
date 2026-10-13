@@ -13,10 +13,23 @@
         document.documentElement.classList.toggle("dark", dark);
       })();
     </script>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230267c7'/%3E%3Cpath d='M12 9v14l11-7z' fill='white'/%3E%3C/svg%3E" />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ApiCall" />
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Keep the install prompt for the Install button, which may mount after the event fires.
+      window.__apicallInstallPrompt = null;
+      window.addEventListener("beforeinstallprompt", function (event) {
+        event.preventDefault();
+        window.__apicallInstallPrompt = event;
+        window.dispatchEvent(new Event("apicall-install"));
+      });
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

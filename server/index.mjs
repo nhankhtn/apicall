@@ -35,6 +35,7 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.map': 'application/json',
+  '.webmanifest': 'application/manifest+json',
 };
 
 // Read-only access to the JSON files the server used to write.

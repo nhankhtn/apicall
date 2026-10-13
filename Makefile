@@ -2,7 +2,7 @@
 #
 #   make dev                                         # API :3939 + Vite :5173
 #   make docker-run APP_USER=admin APP_PASS=secret   # build and run the image on :3939
-#   make publish GHCR=ghcr.io/<you>/apicall          # push to GitHub Container Registry
+#   make publish                                     # push to ghcr.io/<owner>/<repo> (from the origin remote)
 #   make push REGISTRY=myreg.azurecr.io              # push to any registry you are logged in to
 #   make vercel-prod                                 # deploy to Vercel (production)
 
@@ -16,8 +16,10 @@ HOSTS ?=
 # Registry prefix for `make push`, e.g. myreg.azurecr.io or ghcr.io/me
 REGISTRY ?=
 IMAGE := $(if $(REGISTRY),$(REGISTRY)/$(NAME),$(NAME))
-# GitHub Container Registry image for `make publish`, e.g. ghcr.io/me/apicall
-GHCR ?=
+# GitHub repo (owner/name) from the `origin` remote, lowercased as GHCR requires.
+GH_REPO := $(shell git remote get-url origin 2>/dev/null | sed -nE 's#^(https://github\.com/|git@github\.com:)([^/]+)/([^/]+)$$#\2/\3#p' | sed 's/\.git$$//' | tr A-Z a-z)
+# GitHub Container Registry image for `make publish`; defaults to ghcr.io/<owner>/<repo>.
+GHCR ?= $(if $(GH_REPO),ghcr.io/$(GH_REPO))
 GHCR_USER ?= $(firstword $(subst /, ,$(patsubst ghcr.io/%,%,$(GHCR))))
 TAG := $(shell git rev-parse --short HEAD 2>/dev/null || echo local)-$(shell date +%Y%m%d%H%M%S)
 VOLUME := $(NAME)-data
@@ -87,14 +89,14 @@ push:
 	docker push $(IMAGE):latest
 
 ghcr-login:
-	@test -n "$(GHCR)" || { echo 'Usage: make publish GHCR=ghcr.io/<you>/$(NAME)'; exit 1; }
+	@test -n "$(GHCR)" || { echo 'No GitHub origin remote found. Usage: make publish GHCR=ghcr.io/<you>/$(NAME)'; exit 1; }
 	@PATH="$$HOME/.local/bin:$$PATH"; \
 	command -v gh >/dev/null || { echo 'gh is not installed'; exit 1; }; \
 	gh auth status >/dev/null 2>&1 || { echo 'Run once: gh auth login -s write:packages'; exit 1; }; \
 	gh auth token | docker login ghcr.io -u $(GHCR_USER) --password-stdin
 
 publish: ghcr-login
-	docker build -t $(GHCR):$(TAG) -t $(GHCR):latest .
+	docker build $(if $(GH_REPO),--label org.opencontainers.image.source=https://github.com/$(GH_REPO)) -t $(GHCR):$(TAG) -t $(GHCR):latest .
 	docker push $(GHCR):$(TAG)
 	docker push $(GHCR):latest
 

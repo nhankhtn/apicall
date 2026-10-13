@@ -3333,3 +3333,7 @@ textarea.small-area {
 .cookie-empty p {
   margin: 0 0 8px;
 }
+.topbar-glyph {
+  width: 15px;
+  height: 15px;
+}

@@ -1,7 +1,36 @@
 {
   "name": "apicall-runner",
   "version": "1.0.0",
-  "description": "Postman-like API client and collection runner",
+  "description": "Self-hosted, Postman-compatible API client: collection runner, load testing, WebSocket, Socket.IO, MQTT and gRPC, with a Newman-style CLI.",
+  "license": "MIT",
+  "author": "Ngô Nguyễn Duy Nhân",
+  "homepage": "https://github.com/nhankhtn/apicall#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nhankhtn/apicall.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nhankhtn/apicall/issues"
+  },
+  "keywords": [
+    "api-client",
+    "postman",
+    "postman-alternative",
+    "newman",
+    "collection-runner",
+    "rest",
+    "http-client",
+    "load-testing",
+    "websocket",
+    "socket-io",
+    "mqtt",
+    "grpc",
+    "self-hosted",
+    "api-testing"
+  ],
+  "engines": {
+    "node": ">=20.18"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web -c yellow,cyan \"node --watch server.js\" \"vite\"",
     "build": "vite build",

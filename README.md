@@ -1,146 +1,192 @@
+<div align="center">
+
 # ApiCall Runner
 
-API client chạy local, làm theo Postman: soạn request, environment, script `pm.*`, Collection Runner, load test, và CLI runner cho CI. Giao diện React (Vite) theo style của libre/gui/web, kèm một Node server nhỏ.
+**A self-hosted, Postman-compatible API client that runs in your browser.**
+Requests, collection runner, load testing, WebSocket, Socket.IO, MQTT and gRPC, plus a Newman-style CLI for CI.
+One Docker command, no account, no cloud, no telemetry.
 
-## Chạy
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docker image](https://img.shields.io/badge/ghcr.io-apicall-2496ED?logo=docker&logoColor=white)](https://github.com/nhankhtn/apicall/pkgs/container/apicall)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520.18-339933?logo=node.js&logoColor=white)](package.json)
+[![Postman collections](https://img.shields.io/badge/imports-Postman%20v2.1-FF6C37?logo=postman&logoColor=white)](#postman-compatibility)
+
+[Quick start](#quick-start) · [Features](#features) · [Postman compatibility](#postman-compatibility) · [CLI](#cli-for-ci) · [Deploy](#deploy) · [Development](#development)
+
+<img src="docs/assets/request.png" alt="ApiCall Runner: a request with highlighted variables and its JSON response" width="900">
+
+</div>
+
+---
+
+## Why
+
+- **Your Postman collections, unchanged.** Import v2.0/v2.1 collections and environments; `pm.*` scripts, tests, auth and variables keep working.
+- **Nothing leaves your machine.** Collections live in your browser (IndexedDB). The small Node server only relays requests, so there are no CORS errors and internal APIs are reachable.
+- **More than HTTP.** WebSocket, Socket.IO, MQTT and gRPC (reflection or `.proto` files, all four call types) sit next to your REST requests.
+- **Built for teams and CI.** A Newman-style CLI with JUnit reports, a load-test mode, a Docker image, and optional login when you share it.
+
+## Quick start
 
 ```bash
-npm install
-
-# Dev: API server :3939 + Vite :5173 (hot reload). Mở http://localhost:5173
-npm run dev
-
-# Bản build: server serve luôn UI. Mở http://localhost:3939
-npm run build
-npm start
+docker run -d --name apicall \
+  -p 127.0.0.1:3939:3939 \
+  --add-host=host.docker.internal:host-gateway \
+  -v apicall-data:/data \
+  ghcr.io/nhankhtn/apicall:latest
 ```
 
-| Biến môi trường | Mặc định | Ý nghĩa |
-|---|---|---|
-| `PORT` | `3939` | Cổng server |
-| `HOST` | `127.0.0.1` | Đặt `0.0.0.0` để máy khác truy cập |
-| `DATA_DIR` | `./data` | Dữ liệu cũ phía server (chỉ dùng để chuyển sang trình duyệt một lần) |
-| `APICALL_USER`, `APICALL_PASSWORD` | — | Bật đăng nhập HTTP Basic cho cả UI lẫn API. **Bắt buộc nên đặt** khi người khác truy cập được, vì proxy gửi request đi bất cứ đâu |
-| `APICALL_ALLOWED_HOSTS` | — | Khi chưa bật đăng nhập, server chỉ phục vụ `localhost`/`127.0.0.1` (chống DNS rebinding). Liệt kê thêm host/IP được phép, cách nhau bởi dấu phẩy, vd `10.0.0.5,apicall.lan` |
+Open **http://localhost:3939**. Chrome and Edge show an **Install** button, so ApiCall can run in its own window like a desktop app.
 
-## Dữ liệu lưu ở đâu
+> An API on the same machine is `host.docker.internal`, not `localhost`: inside the container, `localhost` is the container itself.
+> The port is published on loopback only. To share the app with others, see [Deploy](#deploy) and turn on login.
 
-Mọi thứ nằm trong **IndexedDB của trình duyệt** (mỗi trình duyệt/profile một workspace riêng, nhiều người dùng chung server không ghi đè nhau): collection, environment, globals, cookie, settings, draft, lịch sử, kết quả runner, file đính kèm, vault.
+From source (Node 20.18+):
 
-- Dữ liệu gắn theo origin: `localhost:3939`, `127.0.0.1:3939`, `localhost:5173` là ba workspace khác nhau.
-- App xin quyền lưu trữ lâu dài (`navigator.storage.persist()`); xem trạng thái ở Settings → Data.
-- Xoá dữ liệu trang trong trình duyệt là mất. Sao lưu bằng **Settings → Data → Export backup** (kèm cả file đính kèm), khôi phục bằng Import.
-- Lần đầu mở bản mới, dữ liệu cũ trong `data/workspace.json` được chép vào trình duyệt tự động.
+```bash
+git clone https://github.com/nhankhtn/apicall.git && cd apicall
+npm install
+npm run dev          # API on :3939 + Vite on :5173 with hot reload → http://localhost:5173
+# or
+make start           # production build served on http://localhost:3939
+```
+
+Then import a Postman collection (**Import** → file or paste), pick an environment and press **Send**. You can also paste a `curl` command straight into the URL bar; the bash and Windows `cmd` formats from Chrome DevTools both work.
+
+## Features
+
+### Requests
+
+- Tabs like Postman (preview tabs, drag to reorder, unsaved dot), **Ctrl+S** save, Save As, revert, and a history of everything you sent.
+- `{{variables}}` highlighted green or red, autocomplete after `{{`, hover cards showing value and scope. Works in the URL, headers, params, auth and code editors.
+- Query params you can toggle, path variables (`/orders/:id`), headers with descriptions, bulk edit.
+- Bodies: raw (JSON, XML, text…), form-data with files, x-www-form-urlencoded, binary, GraphQL.
+- Auth: Bearer, Basic, API Key, JWT (HS/RS/PS/ES), Digest, OAuth 2.0 (client credentials, password, refresh token, authorization code + PKCE), AWS Signature v4, Hawk, NTLM v2, inherited from folders and collections.
+- Response: pretty, raw, HTML/image/PDF preview, `pm.visualizer`, search (Ctrl+F), cookies, headers, test results, console, the exact request sent; TTFB/download timing; save as example.
+- Per-request settings: SSL verification, redirects, cookie jar, timeout. Global proxy and client certificates (mTLS).
+- Code snippets in 18 languages and Copy as cURL.
+
+### Collection runner
+
+<img src="docs/assets/runner.png" alt="Collection runner with a CSV data file, pass/fail results and a response detail" width="900">
+
+Iterations, delay, CSV/JSON data files, `pm.execution.setNextRequest`, stop on first failure, reorder or skip requests for a run, keep or discard variable changes, filter passed/failed, inspect every response, export a JSON report, and browse past runs.
+
+### Load testing
+
+<img src="docs/assets/load-test.png" alt="Performance mode: requests per second and response time charts, percentiles per request" width="900">
+
+Virtual users, duration and ramp-up. Every request still runs its scripts and tests. Charts for response time and throughput, plus p50/p90/p95/p99 and error rate per request.
+
+### WebSocket, Socket.IO, MQTT, gRPC
+
+<img src="docs/assets/websocket.png" alt="WebSocket request: connected, message composer and searchable message log" width="900">
+
+- **WebSocket:** handshake headers, subprotocols, text/JSON/binary messages, saved messages, searchable log.
+- **Socket.IO v3/v4:** path, handshake auth, listen to events (or `*`), emit with ack.
+- **MQTT 3.1.1/5:** `mqtt://`, `mqtts://`, `ws://`, `wss://`, subscriptions with QoS, publish with retain.
+- **gRPC:** server reflection or imported `.proto` files, generated example messages, metadata, deadlines, TLS; unary, server, client and bidirectional streaming.
+
+Switch any request between HTTP, WebSocket, Socket.IO, MQTT and gRPC from the type menu next to its name.
+
+<img src="docs/assets/grpc.png" alt="gRPC request using server reflection, with the response message" width="900">
+
+### Scripts (`pm.*`)
+
+Pre-request and test scripts at collection, folder and request level, run in a Web Worker so imported scripts cannot touch the page:
+
+`pm.test`, `pm.expect` (Chai), `pm.response` (`json()`, `to.have.status`, `to.have.jsonSchema`, `to.have.responseTime.below`, …), `pm.request` (URL, query, path variables, headers, body), `pm.environment`, `pm.collectionVariables`, `pm.globals`, `pm.variables`, `pm.iterationData`, `pm.cookies` and `pm.cookies.jar()`, `pm.vault`, `pm.visualizer`, `pm.sendRequest`, `pm.execution.setNextRequest/skipRequest`, `pm.info`, legacy `postman.*` and `tests[]`, plus `CryptoJS`, lodash, moment, `xml2Json`, cheerio, tv4/ajv, `require()` and top-level `await`.
+
+### Variables and data
+
+Environments, collection variables and globals with **initial and current values** and **secret** types (masked), Persist all / Reset all, a vault for secrets that never leave the browser (`{{vault:key}}`), about 60 dynamic variables (`{{$guid}}`, `{{$timestamp}}`, `{{$randomEmail}}`…), and an automatic cookie jar with a cookie manager.
+
+## Postman compatibility
+
+| | |
+|---|---|
+| Import | Collections v2.0/v2.1 (folders, scripts, auth, variables, path variables, disabled params, examples, files, GraphQL, protocol settings), environments, `curl` (bash and Windows cmd) |
+| Export | Collections v2.1 and environments, ready to open in Postman or run with Newman |
+| Scripts | The `pm.*` API above; collection → folder → request order for both pre-request scripts and tests |
+| Not included | Cloud features (sync, team workspaces, mock servers, monitors, published docs), Kerberos, Akamai EdgeGrid |
+
+WebSocket, Socket.IO, MQTT and gRPC requests are kept in workspace backups. Postman's v2.1 format has no place for them, so collection exports contain HTTP requests only.
+
+## Your data
+
+Everything lives in **your browser's IndexedDB**: collections, environments, history, run results, attachments and vault. Each browser profile has its own workspace, so people sharing one server never overwrite each other, and the app asks the browser to keep the data from being evicted.
+
+- Data belongs to the address you open: `localhost:3939` and `127.0.0.1:3939` are separate workspaces.
+- Back up with **Settings → Data → Export backup** (attachments included) and restore with **Import**.
+- Clearing site data in the browser deletes the workspace, so keep backups.
+
+## CLI for CI
+
+Export a collection and an environment from the app, then:
+
+```bash
+npx apicall run ./Shop.postman_collection.json -e ./Local.postman_environment.json \
+  -d orders.csv --reporters cli,junit --reporter-junit-export out/junit.xml
+```
+
+Options: `-f` folder, `-n` iterations, `-d` data file, `--env-var k=v`, `--delay-request`, `--timeout-request`, `-k` (skip TLS verification), `--bail`, `--export-environment`. The exit code is 1 when a request or assertion fails. See `npx apicall --help`.
 
 ## Deploy
 
-Các lệnh hay dùng đã có sẵn trong `Makefile` (`make help` để xem):
+| Variable | Default | |
+|---|---|---|
+| `PORT` | `3939` | Server port |
+| `HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Listen address |
+| `APICALL_USER`, `APICALL_PASSWORD` | — | HTTP Basic login for the UI and API. **Set these before others can reach the server**: the proxy sends requests anywhere |
+| `APICALL_ALLOWED_HOSTS` | — | Without login only `localhost`/`127.0.0.1` are served (DNS-rebinding protection). Add host names or IPs, comma separated |
 
-| Lệnh | Việc |
+**Docker:** `make docker-run APP_USER=admin APP_PASS=…` builds and runs the image (non-root, healthcheck on `/api/health`). `make publish` pushes to `ghcr.io/<owner>/<repo>` taken from your `origin` remote; `make push REGISTRY=…` pushes anywhere.
+
+**Vercel:** `make vercel-env APP_USER=… APP_PASS=…`, then `make vercel-prod`. `vercel.json`, `api/index.js` and `middleware.js` are included. On Vercel the app has the HTTP proxy only (no WebSocket, Socket.IO, MQTT or gRPC calls, since functions cannot keep connections open), requests leave from Vercel's cloud so internal/VPN APIs are unreachable, and bodies are limited to about 4 MB.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
 |---|---|
-| `make dev` / `make start` | Chạy dev (Vite + server) / build rồi chạy bản production |
-| `make docker-run APP_USER=admin APP_PASS=…` | Build image và chạy container trên :3939 (`PORT=…` để đổi cổng, `HOSTS=…` cho APICALL_ALLOWED_HOSTS) |
-| `make docker-logs` / `make docker-stop` | Xem log / dừng container |
-| `make push REGISTRY=myreg.azurecr.io` | Build image tag `<commit>-<thời gian>` + `latest` rồi push lên registry đã login |
-| `make publish GHCR=ghcr.io/<you>/apicall` | Push lên GitHub Container Registry (login qua `gh`) |
-| `make vercel-env APP_USER=… APP_PASS=…` rồi `make vercel-prod` | Đặt login cho Vercel và deploy production |
-| `make cli ARGS='run ./x.postman_collection.json -e ./env.json'` | Chạy CLI runner |
+| `Ctrl` + `Enter` | Send |
+| `Ctrl` + `S` / `Ctrl` + `Shift` + `S` | Save / Save As |
+| `Alt` + `N` / `Alt` + `W` | New request / close tab |
+| `Ctrl` + `F` | Search in an editor or the response |
+| `F2`, `Delete` | Rename / delete in the sidebar |
+| `{{` | Variable autocomplete |
 
-### Docker
-
-```bash
-docker build -t apicall .
-docker run -d --name apicall -p 3939:3939 \
-  -e APICALL_USER=admin -e APICALL_PASSWORD='đổi-mật-khẩu' \
-  -v apicall-data:/data apicall
-```
-
-Image chạy bằng user `node` (không phải root), có healthcheck `/api/health`. Truy cập qua IP/tên miền khác `localhost` thì phải bật đăng nhập hoặc đặt `APICALL_ALLOWED_HOSTS`. Bản Docker có đủ tính năng, kể cả WebSocket/Socket.IO/MQTT/gRPC.
-
-### Vercel
+## Development
 
 ```bash
-npx vercel            # hoặc import repo trên vercel.com, framework: Vite
+make dev       # server (node --watch) + Vite
+make build     # production build into dist/
+make help      # every target: docker, publish, vercel, cli…
 ```
 
-Đặt `APICALL_USER` và `APICALL_PASSWORD` trong Project → Settings → Environment Variables (middleware.js khoá toàn bộ site bằng Basic auth). `vercel.json` build `dist/` và chuyển `/api/*` vào function `api/index.js`.
-
-Giới hạn trên Vercel:
-- **Không có WebSocket, Socket.IO, MQTT, gọi gRPC** (serverless function không giữ kết nối). Xem danh sách method gRPC thì vẫn được.
-- Proxy chạy trên cloud của Vercel: **không gọi được API nội bộ, VPN, localhost**.
-- Request body tối đa ~4 MB, mỗi request tối đa 60 giây.
-
-## CLI runner (cho CI)
-
-Workspace nằm trong trình duyệt, nên CLI chạy từ file export: chuột phải collection → Export (Postman v2.1), environment → Export.
-
-```bash
-npx apicall run ./shop.postman_collection.json -e ./local.postman_environment.json -d orders.csv \
-  --reporters cli,junit --reporter-junit-export out/junit.xml
+```
+Browser (React + Vite)                                server/index.mjs  (api/index.js on Vercel)
+ ├─ IndexedDB: workspace, history, runs, files         ├─ POST /api/proxy           → server/proxy.mjs (undici)
+ ├─ engine.worker.js: scripts + HTTP engine            ├─ WS   /api/realtime        → server/realtime.mjs
+ └─ realtime.js: one WebSocket for every session       └─ POST /api/grpc/describe   → server/grpc.mjs
+bin/cli.mjs: the same engine in Node, calling server/proxy.mjs directly
 ```
 
-`-f` chạy riêng folder, `-n` số iteration, `--env-var k=v`, `--delay-request`, `--timeout-request`, `-k` bỏ kiểm tra SSL, `--bail` dừng ở lỗi đầu tiên, `--export-environment`. Exit code 1 khi có request/test fail. Xem đủ: `npx apicall --help`.
+| Path | |
+|---|---|
+| `src/lib/engine.js` | Request execution (scripts, cookies, Digest retry, OAuth 2.0), collection runs, load tests |
+| `src/lib/build.js` | Turns an edited request into the exact request sent (variables, auth, body, cookies) |
+| `src/lib/sandbox.js` | The `pm.*` API |
+| `src/lib/authsign.js`, `server/ntlm.mjs` | AWS SigV4, Digest, JWT, Hawk; NTLM handshake |
+| `src/lib/model.js` | Data model, Postman import/export, `curl` parsing |
+| `src/lib/codegen.js` | Code snippets for 18 languages |
+| `server/auth.mjs` | Login, allowed hosts, same-origin checks |
 
-## Kiến trúc
+## Security
 
-```
-Browser (React)                                     server/index.mjs (hoặc api/index.js trên Vercel)
- ├─ IndexedDB: workspace, history, runs, files       ├─ POST /api/proxy     → server/proxy.mjs → API đích
- ├─ engine.worker.js: scripts + HTTP engine          ├─ WS   /api/realtime  → server/realtime.mjs (WS, Socket.IO, MQTT, gRPC)
- └─ realtime.js: một WebSocket chở mọi phiên         └─ POST /api/grpc/describe → server/grpc.mjs
-bin/cli.mjs: cùng engine, gọi thẳng server/proxy.mjs (không cần server chạy)
-```
+- Scripts run in a Web Worker: they cannot read the page, its storage or the vault, but they can make network requests through `pm.sendRequest`. Import collections you trust.
+- Without login the server answers only on loopback host names and refuses cross-origin calls, so a web page you visit cannot use it to reach your network.
+- Load tests send real traffic. Point them at test environments.
 
-- `src/lib/engine.js`: chạy request (script, cookie, Digest retry, OAuth2), collection run, load test.
-- `src/lib/build.js`: dựng request cuối cùng (path variable, body, auth, cookie, setting).
-- `src/lib/sandbox.js`: API `pm.*`. `src/lib/vars.js`: biến. `src/lib/cookies.js`: cookie jar.
-- `src/lib/authsign.js`: AWS SigV4, Digest, JWT, Hawk. `server/ntlm.mjs`: bắt tay NTLM. `src/lib/codegen.js`: sinh code 18 ngôn ngữ.
-- `src/lib/model.js`: model, import/export Postman v2.1, parse cURL (bash và Windows cmd).
-- `src/db.js`, `src/persist.js`: IndexedDB và đồng bộ giữa các tab.
+## License
 
-## Tính năng
-
-**Soạn request**
-- Tab như Postman (preview tab, kéo thả, menu chuột phải), draft chưa lưu có chấm báo, Ctrl+S / Save As / Revert, tab request mới chưa thuộc collection.
-- Ô nhập tô màu `{{biến}}` (xanh: đã định nghĩa, đỏ: chưa), gõ `{{` để gợi ý, hover để xem giá trị và scope. CodeMirror trong body cũng vậy.
-- Params: query param bật/tắt từng dòng, bảng path variable (`/orders/:id`), description.
-- Body: none, form-data (text + file), x-www-form-urlencoded, raw (JSON/Text/XML/HTML/JS), binary, GraphQL (query + variables).
-- Auth: Bearer, Basic, API Key, JWT (HS/RS/PS/ES), Digest, OAuth 2.0 (client credentials, password, refresh token, authorization code + PKCE qua popup, tự lấy token khi chạy), AWS Signature v4, Hawk, NTLM (v2); kế thừa từ folder/collection.
-- Settings từng request: SSL verify, follow redirects, cookie jar, timeout.
-- Dán cURL vào ô URL tự điền request; Copy as cURL; sinh code 18 ngôn ngữ.
-
-**Response**
-- Pretty / Raw / Preview (HTML, ảnh, PDF) / Visualize (`pm.visualizer`, Handlebars), tìm kiếm, copy, lưu ra file.
-- Tab Cookies, Headers, Test Results (lọc), Console, Request đã gửi; thời gian tách TTFB/download, kích thước tách header/body.
-- Save as example; example hiện dưới request trong sidebar, sửa được.
-
-**Biến và môi trường**
-- Environment, collection variables, globals với Initial / Current value, kiểu secret (che), Persist all / Reset all.
-- Vault (`{{vault:key}}`, `pm.vault`), dynamic variables (`{{$guid}}`, `{{$timestamp}}`, `{{$randomEmail}}`… ~60 loại).
-- Cookie jar tự động + màn hình quản lý cookie theo domain.
-
-**Runner**
-- Functional: chọn và sắp xếp lại request ngay trong runner, iterations, delay, data CSV/JSON, stop on failure, giữ giá trị biến, lọc pass/fail, xem chi tiết, export report, lịch sử các lần chạy.
-- Performance: virtual users, thời lượng, ramp-up; biểu đồ response time và throughput, p50/p90/p95/p99, error rate, thống kê theo request.
-
-**Script (`pm.*`)**
-`pm.test/expect`, `pm.response.*` (+ `to.have.jsonSchema`, `to.have.responseTime.below`, `to.have.cookie`…), `pm.request.*` (url/query/path variables/headers/body), `pm.environment`, `pm.collectionVariables`, `pm.globals`, `pm.variables`, `pm.iterationData`, `pm.cookies` + `pm.cookies.jar()`, `pm.vault`, `pm.visualizer`, `pm.sendRequest`, `pm.execution.setNextRequest/skipRequest`, `pm.info`, API cũ (`postman.*`, `tests[]`, `responseBody`…), `setTimeout`, `xml2Json`, `cheerio`, `tv4`, `CryptoJS`, `_`, `moment`, `require(...)`, top-level `await`.
-
-**Khác**: import/export Postman Collection v2.0/2.1 và environment (giữ path variable, param tắt, example, file, auth, setting), backup workspace, proxy (bypass list), client certificate (mTLS), sáng/tối, CLI runner.
-
-**Loại request khác HTTP** (nút New, hoặc chuột phải collection → Add … request)
-- WebSocket: header handshake, subprotocol, gửi text/JSON/binary, tin nhắn đã lưu, log có tìm kiếm.
-- Socket.IO (v3/v4): path, auth handshake, nghe event (kể cả `*`), emit kèm ack.
-- MQTT 3.1.1/5 (mqtt, mqtts, ws, wss): subscribe theo topic/QoS, publish, retain.
-- gRPC: server reflection hoặc import file .proto, chọn method, ví dụ message tự sinh, metadata, deadline, TLS; unary và cả 3 kiểu streaming.
-- Các loại này lưu trong collection như request thường nhưng không nằm trong runner và không export ra Postman v2.1 (định dạng đó không hỗ trợ); backup workspace thì giữ đủ.
-
-## Chưa có
-
-- Tính năng cloud của Postman: đồng bộ, chia sẻ team, mock server, monitor, publish docs.
-- Auth Akamai EdgeGrid, Kerberos (NTLM chỉ hỗ trợ NTLMv2).
-- Thời gian DNS/TCP/TLS tách riêng (chỉ có TTFB và download).
-
-## Lưu ý bảo mật
-
-Script chạy trong Web Worker nên không đọc được trang, localStorage hay vault của app, nhưng vẫn gọi được mạng qua `pm.sendRequest`. Chỉ import collection từ nguồn tin cậy. Load test tạo traffic thật, hãy dùng môi trường test.
+[MIT](LICENSE) © Ngô Nguyễn Duy Nhân
