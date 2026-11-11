@@ -1,5 +1,8 @@
 // Sends one HTTP request on behalf of the UI (via /api/proxy) or the CLI.
 // Shared so both get identical TLS, proxy, redirect and multipart behavior.
+import { rootCertificates } from 'node:tls';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { Agent, ProxyAgent, fetch, FormData } from 'undici';
 import { readStoredFile } from './files.mjs';
 import { ntlmFetch } from './ntlm.mjs';
@@ -15,6 +18,27 @@ const matchesHost = (pattern, host) => {
   return host === p || host.endsWith(`.${p}`);
 };
 
+// Trusted roots when the user adds CA certificates (e.g. a corporate TLS-inspection CA such as
+// Cloudflare Gateway): Node's bundled roots plus NODE_EXTRA_CA_CERTS, plus the added ones.
+const PEM_RE = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
+let baseRoots = null;
+function trustedRoots(extraPem) {
+  if (!baseRoots) {
+    baseRoots = [...rootCertificates];
+    const envFile = process.env.NODE_EXTRA_CA_CERTS;
+    if (envFile) {
+      try {
+        baseRoots.push(...(readFileSync(envFile, 'utf8').match(PEM_RE) || []));
+      } catch (err) {
+        console.error(`trustedRoots.readFileSync: file=${envFile}: ${err.message}`);
+      }
+    }
+  }
+  return [...baseRoots, ...(String(extraPem).match(PEM_RE) || [])];
+}
+
+const hashOf = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
+
 function dispatcherConfig(url, opts) {
   const host = url.hostname.toLowerCase();
   const verifySsl = opts.verifySsl !== false;
@@ -23,7 +47,9 @@ function dispatcherConfig(url, opts) {
   const cert = (opts.clientCerts || []).find((c) => c.host && matchesHost(c.host, host) && c.cert && c.key);
   const tls = { rejectUnauthorized: verifySsl };
   if (cert) Object.assign(tls, { cert: cert.cert, key: cert.key, passphrase: cert.passphrase || undefined });
-  const key = JSON.stringify([verifySsl, proxyUrl, cert ? [cert.host, cert.cert.length, cert.key.length] : null]);
+  const caPem = verifySsl && opts.caCerts ? String(opts.caCerts) : '';
+  if (caPem) tls.ca = trustedRoots(caPem);
+  const key = JSON.stringify([verifySsl, proxyUrl, cert ? [cert.host, cert.cert.length, cert.key.length] : null, caPem ? hashOf(caPem) : null]);
   return { key, proxyUrl, tls };
 }
 

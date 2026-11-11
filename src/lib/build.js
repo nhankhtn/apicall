@@ -240,6 +240,7 @@ export async function buildRequest(draft, vars, ctx = {}) {
     proxyUrl: settings.proxyUrl,
     noProxy: settings.noProxy,
     clientCerts: settings.clientCerts,
+    caCerts: settings.caCerts,
   });
 
   const unresolved = [...new Set([spec.url, bodyText, ...spec.headers.flatMap((x) => [x.key, x.value])].flatMap(unresolvedIn))];

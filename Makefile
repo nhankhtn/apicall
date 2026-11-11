@@ -13,6 +13,9 @@ APP_USER ?=
 APP_PASS ?=
 # Extra host names served without login, comma separated (APICALL_ALLOWED_HOSTS).
 HOSTS ?=
+# Extra root CA file trusted inside the container (NODE_EXTRA_CA_CERTS), e.g. a corporate
+# TLS-inspection CA: make docker-run CA=/usr/local/share/ca-certificates/cloudflare-gw.crt
+CA ?=
 # Registry prefix for `make push`, e.g. myreg.azurecr.io or ghcr.io/me
 REGISTRY ?=
 IMAGE := $(if $(REGISTRY),$(REGISTRY)/$(NAME),$(NAME))
@@ -33,7 +36,7 @@ help:
 	@echo 'Publish: image push publish (GitHub Container Registry)'
 	@echo 'Vercel:  vercel vercel-prod vercel-env'
 	@echo
-	@echo 'Variables: PORT=$(PORT) APP_USER=<login> APP_PASS=<password> HOSTS=<a,b> REGISTRY=<prefix> GHCR=ghcr.io/<you>/$(NAME)'
+	@echo 'Variables: PORT=$(PORT) APP_USER=<login> APP_PASS=<password> HOSTS=<a,b> CA=<ca.crt> REGISTRY=<prefix> GHCR=ghcr.io/<you>/$(NAME)'
 
 # ---------- Local ----------
 
@@ -68,6 +71,7 @@ docker-run: docker docker-stop
 		$(if $(APP_USER),-e APICALL_USER=$(APP_USER)) \
 		$(if $(APP_PASS),-e APICALL_PASSWORD=$(APP_PASS)) \
 		$(if $(HOSTS),-e APICALL_ALLOWED_HOSTS=$(HOSTS)) \
+		$(if $(CA),-v $(abspath $(CA)):/certs/extra-ca.crt:ro -e NODE_EXTRA_CA_CERTS=/certs/extra-ca.crt) \
 		$(NAME):latest
 	@echo 'Running on http://localhost:$(PORT)'
 

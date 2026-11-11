@@ -142,6 +142,8 @@ Options: `-f` folder, `-n` iterations, `-d` data file, `--env-var k=v`, `--delay
 
 **Docker:** `make docker-run APP_USER=admin APP_PASS=…` builds and runs the image (non-root, healthcheck on `/api/health`). `make publish` pushes to `ghcr.io/<owner>/<repo>` taken from your `origin` remote; `make push REGISTRY=…` pushes anywhere.
 
+**Corporate HTTPS inspection** (Cloudflare Gateway/WARP, Zscaler…): requests fail with `SELF_SIGNED_CERT_IN_CHAIN` until the company root CA is trusted. Add it in **Settings → Certificates → CA certificates**, or for Docker mount it with `make docker-run CA=/path/to/company-ca.crt` (sets `NODE_EXTRA_CA_CERTS`, which also covers WebSocket, MQTT and gRPC).
+
 **Vercel:** `make vercel-env APP_USER=… APP_PASS=…`, then `make vercel-prod`. `vercel.json`, `api/index.js` and `middleware.js` are included. On Vercel the app has the HTTP proxy only (no WebSocket, Socket.IO, MQTT or gRPC calls, since functions cannot keep connections open), requests leave from Vercel's cloud so internal/VPN APIs are unreachable, and bodies are limited to about 4 MB.
 
 ## Keyboard shortcuts

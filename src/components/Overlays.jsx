@@ -283,9 +283,43 @@ function DataTab() {
   );
 }
 
-function SettingsModal({ onClose }) {
+// Extra trusted root CAs, e.g. a company's TLS-inspection CA (Cloudflare Gateway, Zscaler, …).
+function CaCertificates({ value, onChange }) {
+  const input = useRef(null);
+  const count = (value.match(/-----BEGIN CERTIFICATE-----/g) || []).length;
+  const add = async (files) => {
+    const texts = await Promise.all(files.map((f) => readFileText(f)));
+    const pems = texts.flatMap((t) => t.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) || []);
+    if (!pems.length) return A.toast('No PEM certificate found. Use a .crt/.pem file that starts with -----BEGIN CERTIFICATE-----', 'error', 6000);
+    onChange([value.trim(), ...pems].filter(Boolean).join('\n'));
+    A.toast(`Added ${pems.length} CA certificate(s)`, 'success');
+    return undefined;
+  };
+  return (
+    <div className="ca-certs">
+      <div className="auth-section">CA certificates</div>
+      <p className="hint small">
+        Trust extra root CAs while keeping SSL verification on. Needed when your network inspects HTTPS (Cloudflare Gateway/WARP, Zscaler, a corporate proxy) or an API uses a
+        private CA, which otherwise fails with <code>SELF_SIGNED_CERT_IN_CHAIN</code>. Ask IT for the root certificate, or export it from the browser&apos;s padlock → Certificate.
+      </p>
+      <input ref={input} type="file" accept=".crt,.pem,.cer" multiple hidden onChange={(e) => add([...e.target.files])} />
+      <textarea className="mono pem" spellCheck={false} value={value} placeholder="-----BEGIN CERTIFICATE-----" onChange={(e) => onChange(e.target.value)} />
+      <div className="row-actions">
+        <button className="btn small" onClick={() => input.current.click()}>
+          Add .crt / .pem file
+        </button>
+        <button className="btn small ghost" disabled={!value} onClick={() => onChange('')}>
+          Remove all
+        </button>
+        <span className="hint small">{count ? `${count} certificate(s) trusted` : 'None added'}</span>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({ onClose, initialTab }) {
   const settings = useWs((s) => s.ws.settings);
-  const [tab, setTab] = useState('general');
+  const [tab, setTab] = useState(initialTab || 'general');
   const set = (patch) => mutate((ws) => void Object.assign(ws.settings, patch));
   const tabs = [
     ['general', 'General'],
@@ -333,6 +367,8 @@ function SettingsModal({ onClose }) {
         )}
         {tab === 'certs' && (
           <>
+            <CaCertificates value={settings.caCerts || ''} onChange={(caCerts) => set({ caCerts })} />
+            <div className="auth-section">Client certificates</div>
             <p className="hint small">Client certificates (mutual TLS) are sent to matching hosts. They are stored in the workspace on this machine.</p>
             <CertificateList certs={settings.clientCerts || []} onChange={(clientCerts) => set({ clientCerts })} />
           </>
@@ -589,7 +625,7 @@ export function Modals() {
     case 'import':
       return <ImportModal onClose={close} />;
     case 'settings':
-      return <SettingsModal onClose={close} />;
+      return <SettingsModal onClose={close} initialTab={modal.tab} />;
     case 'cookies':
       return <CookiesModal onClose={close} />;
     case 'saveAs':

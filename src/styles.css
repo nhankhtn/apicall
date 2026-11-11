@@ -3337,3 +3337,26 @@ textarea.small-area {
   width: 15px;
   height: 15px;
 }
+.resp-error {
+  flex-wrap: wrap;
+}
+.resp-error-hint {
+  flex-basis: 100%;
+  padding-left: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.resp-error-hint .link-btn {
+  font-size: 12px;
+}
+.ca-certs {
+  margin-bottom: 12px;
+}
+.ca-certs .auth-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.ca-certs textarea {
+  width: 100%;
+}

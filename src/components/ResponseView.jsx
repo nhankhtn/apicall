@@ -1,13 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import Handlebars from 'handlebars/dist/cjs/handlebars.js';
 import CodeEditor from './CodeEditor.jsx';
-import { useUi, setSubTab } from '../store.js';
+import { useUi, setUi, setSubTab } from '../store.js';
 import { formatBytes, formatMs, prettyBody, eqi } from '../lib/util.js';
 import { parseSetCookie, formatCookie } from '../lib/cookies.js';
 import { toast, saveExample } from '../actions.js';
 import { IconAlert, IconCheck, IconCopy, IconX, IconSearch, IconExport } from './icons.jsx';
 
 const PRETTY_LIMIT = 3 * 1024 * 1024;
+const CERT_ERROR = /SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER|CERT_HAS_EXPIRED|CERT_UNTRUSTED|ERR_TLS_CERT|certificate/i;
 
 export const statusClass = (code) => (code >= 500 ? 's5' : code >= 400 ? 's4' : code >= 300 ? 's3' : code >= 200 ? 's2' : 's1');
 
@@ -389,6 +390,15 @@ export default function ResponseView({ record, sending, onCancel, compact = fals
       {record.error && (
         <div className="resp-error">
           <IconAlert /> <span>{record.error}</span>
+          {CERT_ERROR.test(record.error) && (
+            <span className="resp-error-hint">
+              The certificate is not trusted. If your network inspects HTTPS (e.g. Cloudflare Gateway), add its CA in{' '}
+              <button className="link-btn" onClick={() => setUi({ modal: { type: 'settings', tab: 'certs' } })}>
+                Settings → Certificates
+              </button>
+              , or turn SSL verification off for this request (Settings tab).
+            </span>
+          )}
         </div>
       )}
       <div className="resp-content">
